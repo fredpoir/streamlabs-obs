@@ -1,171 +1,34 @@
-import { uniq } from 'lodash';
-import { mutation, StatefulService, ServiceHelper } from 'services/stateful-service';
+import uniq from 'lodash/uniq';
+import { ServiceHelper, Inject } from 'services';
 import {
-  Scene,
-  SceneItem,
   ScenesService,
+  TSceneNodeModel,
+  Scene,
+  SceneItemFolder,
+  SceneItem,
+  TSceneNode,
   ISceneItem,
   ISceneItemSettings,
+  ISceneItemNode,
   IPartialTransform,
-  TSceneNode, ISceneItemNode, SceneItemFolder
 } from 'services/scenes';
-import { Inject } from '../../util/injector';
-import { shortcut } from '../shortcuts';
-import { ISelection, ISelectionServiceApi, ISelectionState, TNodesList } from './selection-api';
-import { Subject } from 'rxjs/Subject';
-import Utils from '../utils';
-
-
-/**
- * represents selection of active scene and provide shortcuts
- */
-export class SelectionService
-  extends StatefulService<ISelectionState>
-  implements ISelectionServiceApi
-{
-
-  static initialState: ISelectionState = {
-    selectedIds: [],
-    lastSelectedId: ''
-  };
-
-  updated = new Subject<ISelectionState>();
-  private sceneId: string;
-
-  @Inject() private scenesService: ScenesService;
-
-  init() {
-    this.scenesService.sceneSwitched.subscribe(() => {
-      this.reset();
-    });
-  }
-
-  // SELECTION METHODS
-
-  add: (items: TNodesList) => Selection;
-  deselect: (items: TNodesList) => Selection;
-  reset: () => Selection;
-  selectAll: () => Selection;
-  clone: () => Selection;
-  invert: () => Selection;
-  getItems: () => SceneItem[];
-  getNodes: () => TSceneNode[];
-  getFolders: () => SceneItemFolder[];
-  getVisualItems: () => SceneItem[];
-  getIds: () => string[];
-  getInvertedIds: () => string[];
-  getInverted: () => TSceneNode[];
-  getBoundingRect: () => IRectangle;
-  getLastSelected: () => SceneItem;
-  getLastSelectedId: () => string;
-  getSize: () => number;
-  isSelected: (item: string | ISceneItem) => boolean;
-  copyReferenceTo: (sceneId: string, folderId?: string) => SceneItem[];
-  copyTo: (sceneId: string) => SceneItem[];
-  moveTo: (sceneId: string, folderId?: string) => SceneItem[];
-  isSceneItem: () => boolean;
-  isSceneFolder: () => boolean;
-
-
-  // SCENE_ITEM METHODS
-
-  setSettings: (settings: Partial<ISceneItemSettings>) => void;
-  setVisibility: (isVisible: boolean) => void;
-  setTransform: (transform: IPartialTransform) => void;
-  resetTransform: () => void;
-  flipY: () => void;
-  flipX: () => void;
-  stretchToScreen: () => void;
-  fitToScreen: () => void;
-  centerOnScreen: () => void;
-  rotate: (deg: number) => void;
-  setContentCrop: () => void;
-
-
-  @shortcut('Delete')
-  remove() {
-    return this.getSelection().remove.call(this);
-  }
-
-  @shortcut('ArrowLeft')
-  nudgeActiveItemsLeft() {
-    return this.getSelection().nudgeActiveItemsLeft.call(this);
-  }
-
-  @shortcut('ArrowRight')
-  nudgeActiveItemRight() {
-    return this.getSelection().nudgeActiveItemRight.call(this);
-  }
-
-  @shortcut('ArrowUp')
-  nudgeActiveItemsUp() {
-    return this.getSelection().nudgeActiveItemsUp.call(this);
-  }
-
-  @shortcut('ArrowDown')
-  nudgeActiveItemsDown() {
-    return this.getSelection().nudgeActiveItemsDown.call(this);
-  }
-
-  /**
-   * @override Selection.select
-   */
-  select(items: TNodesList): ISelection {
-    this.getSelection().select.call(this, items);
-
-    const scene = this.getScene();
-    const activeObsIds = this.getItems()
-      .map(sceneItem => sceneItem.obsSceneItemId);
-
-    // tell OBS which sceneItems are selected
-    scene.getObsScene().getItems().forEach(obsSceneItem => {
-      if (activeObsIds.includes(obsSceneItem.id)) {
-        obsSceneItem.selected = true;
-      } else {
-        obsSceneItem.selected = false;
-      }
-    });
-
-    this.updated.next(this.state);
-    return this;
-  }
-
-
-  /**
-   * @override Selection.getScene
-   */
-  private getScene(): Scene {
-    return this.scenesService.activeScene;
-  }
-
-  private getSelection(): Selection {
-    return Selection.prototype;
-  }
-
-  /**
-   * @override Selection.setState
-   */
-  private setState(state: Partial<ISelectionState>) {
-    this.SET_STATE(state);
-  }
-
-  @mutation()
-  private SET_STATE(state: Partial<ISelectionState>) {
-    Object.assign(this.state, state);
-  }
-}
+import { Source } from 'services/sources';
+import { Rect } from 'util/rect';
+import { AnchorPoint, AnchorPositions, CenteringAxis } from 'util/ScalableRectangle';
+import { ISelectionState, TNodesList } from './index';
 
 /**
  * Helper for working with multiple sceneItems
  */
 @ServiceHelper()
-export class Selection implements ISelection {
-
+export class Selection {
   @Inject() private scenesService: ScenesService;
+
+  _resourceId: string;
 
   private state: ISelectionState = {
     selectedIds: [],
-    lastSelectedId: ''
+    lastSelectedId: '',
   };
 
   constructor(public sceneId: string, itemsList: TNodesList = []) {
@@ -189,7 +52,6 @@ export class Selection implements ISelection {
     ids = uniq(ids);
     const scene = this.getScene();
 
-
     // omit ids that are not presented on the scene
     // and select the all nested items of selected folders
     const selectedIds: string[] = [];
@@ -198,7 +60,7 @@ export class Selection implements ISelection {
       if (!node) return;
       selectedIds.push(id);
       if (node.sceneNodeType !== 'folder') return;
-      selectedIds.push(...((node as SceneItemFolder).getNestedNodesIds()));
+      selectedIds.push(...(node as SceneItemFolder).getNestedNodesIds());
     });
 
     this.setState({ selectedIds });
@@ -206,6 +68,8 @@ export class Selection implements ISelection {
     if (!this.state.selectedIds.includes(this.state.lastSelectedId)) {
       this.setState({ lastSelectedId: selectedIds[selectedIds.length - 1] });
     }
+
+    this._resourceId = `Selection${JSON.stringify([this.sceneId, this.state.selectedIds])}`;
 
     return this;
   }
@@ -256,7 +120,7 @@ export class Selection implements ISelection {
    * true if selections has only one SceneItem
    */
   isSceneItem(): boolean {
-    return this.getSize() === 1 && this.getItems()[0].isItem();
+    return this.getSize() === 1 && this.getNodes()[0].isItem();
   }
 
   /**
@@ -269,7 +133,6 @@ export class Selection implements ISelection {
     const isNotFolderChild = this.getItems().find(item => item.parentId !== folder.id);
     return !isNotFolderChild;
   }
-
 
   getVisualItems(): SceneItem[] {
     return this.getItems().filter(item => item.isVisualSource);
@@ -284,13 +147,15 @@ export class Selection implements ISelection {
 
   getInvertedIds(): string[] {
     const selectedIds = this.getIds();
-    return this.getScene().getNodesIds().filter(id => {
-      return !selectedIds.includes(id);
-    });
+    return this.getScene()
+      .getNodesIds()
+      .filter(id => {
+        return !selectedIds.includes(id);
+      });
   }
 
-  getLastSelected(): SceneItem {
-    return this.getScene().getItem(this.state.lastSelectedId);
+  getLastSelected(): TSceneNode {
+    return this.getScene().getNode(this.state.lastSelectedId);
   }
 
   getLastSelectedId(): string {
@@ -301,7 +166,7 @@ export class Selection implements ISelection {
     return this.state.selectedIds.length;
   }
 
-  getBoundingRect(): IRectangle {
+  getBoundingRect(): Rect {
     const items = this.getVisualItems();
     if (!items.length) return null;
 
@@ -311,20 +176,19 @@ export class Selection implements ISelection {
     let maxBottom = -Infinity;
 
     items.forEach(item => {
-      const rect = item.getRectangle();
-      rect.normalize();
+      const rect = item.getBoundingRect();
       minTop = Math.min(minTop, rect.y);
       minLeft = Math.min(minLeft, rect.x);
       maxRight = Math.max(maxRight, rect.x + rect.width);
       maxBottom = Math.max(maxBottom, rect.y + rect.height);
     });
 
-    return {
+    return new Rect({
       x: minLeft,
       y: minTop,
       width: maxRight - minLeft,
-      height: maxBottom - minTop
-    };
+      height: maxBottom - minTop,
+    });
   }
 
   getInverted(): TSceneNode[] {
@@ -338,71 +202,170 @@ export class Selection implements ISelection {
     return this;
   }
 
-  isSelected(sceneNode: string | ISceneItemNode) {
-    const itemId = (typeof sceneNode === 'string') ?
-      sceneNode :
-      (sceneNode as ISceneItem).sceneItemId;
+  isSelected(sceneNode: string | TSceneNodeModel) {
+    const itemId =
+      typeof sceneNode === 'string' ? sceneNode : (sceneNode as ISceneItem).sceneItemId;
     return this.getIds().includes(itemId);
   }
 
   selectAll(): Selection {
-    this.select(this.getScene().getItems().map(item => item.sceneItemId));
+    this.select(
+      this.getScene()
+        .getNodes()
+        .map(node => node.id),
+    );
     return this;
   }
 
-  copyReferenceTo(sceneId: string, folderId?: string): SceneItem[] {
-    const insertedItems: SceneItem[] = [];
+  copyTo(sceneId: string, folderId?: string, duplicateSources = false): TSceneNode[] {
+    const insertedNodes: TSceneNode[] = [];
     const scene = this.scenesService.getScene(sceneId);
-    const folder = scene.getFolder(folderId);
+    const foldersMap: Dictionary<string> = {};
+    let prevInsertedNode: TSceneNode;
+    let insertedNode: TSceneNode;
 
-    this.getItems().reverse().forEach(sceneItem => {
-      const insertedItem = scene.addSource(
-        sceneItem.sourceId
-      );
-      insertedItem.setSettings(sceneItem.getSettings());
-      if (folder) insertedItem.setParent(folder.id);
-      insertedItems.push(insertedItem);
-    });
+    const sourcesMap: Dictionary<Source> = {};
+    // TODO: we're updating this, but we don't seem to ever use it
+    const notDuplicatedSources: Source[] = [];
+    if (duplicateSources) {
+      this.getSources().forEach(source => {
+        const duplicatedSource = source.duplicate();
+        if (!duplicatedSource) {
+          notDuplicatedSources.push(source);
+          return;
+        }
+        sourcesMap[source.sourceId] = duplicatedSource;
+      });
+    }
 
-    return insertedItems;
-  }
-
-  copyTo(sceneId: string): SceneItem[] {
-    const insertedItems: SceneItem[] = [];
-    const scene = this.scenesService.getScene(sceneId);
-    this.getItems().reverse().forEach(sceneItem => {
-      const duplicatedSource = sceneItem.getSource().duplicate();
-
-      if (!duplicatedSource) {
-        alert(`Unable to duplicate ${sceneItem.name}`);
-        return;
+    // copy items and folders structure
+    this.getNodes().forEach(sceneNode => {
+      if (sceneNode.isFolder()) {
+        insertedNode = scene.createFolder(sceneNode.name);
+        foldersMap[sceneNode.id] = insertedNode.id;
+        insertedNodes.push(insertedNode);
+      } else if (sceneNode.isItem()) {
+        insertedNode = scene.addSource(
+          sourcesMap[sceneNode.sourceId]
+            ? sourcesMap[sceneNode.sourceId].sourceId
+            : sceneNode.sourceId,
+        );
+        insertedNode.setSettings(sceneNode.getSettings());
+        insertedNodes.push(insertedNode);
       }
 
-      const insertedItem = scene.addSource(duplicatedSource.sourceId);
-      insertedItem.setSettings(sceneItem.getSettings());
-      insertedItems.push(insertedItem);
+      const newParentId = foldersMap[sceneNode.parentId] || '';
+      if (newParentId) {
+        insertedNode.setParent(newParentId);
+      }
+
+      if (prevInsertedNode && prevInsertedNode.parentId === newParentId) {
+        insertedNode.placeAfter(prevInsertedNode.id);
+      }
+
+      prevInsertedNode = insertedNode;
     });
-    return insertedItems;
+
+    return insertedNodes;
   }
 
-  moveTo(sceneId: string, folderId?: string): SceneItem[] {
-
+  moveTo(sceneId: string, folderId?: string): TSceneNode[] {
     if (this.sceneId === sceneId) {
       if (!folderId) return;
-      this.getNodes().reverse().forEach(sceneNode => sceneNode.setParent(folderId));
+      this.getRootNodes()
+        .reverse()
+        .forEach(sceneNode => sceneNode.setParent(folderId));
     } else {
-      const insertedItems = this.copyReferenceTo(sceneId, folderId);
+      const insertedItems = this.copyTo(sceneId, folderId);
       this.remove();
       return insertedItems;
     }
   }
 
-  isVisible() {
-    return !this.getItems().find(item => !item.visible);
+  /**
+   * A selection is considered visible if at least 1 item
+   * in the selection is visible.
+   */
+  isVisible(): boolean {
+    return !!this.getItems().find(item => item.visible);
   }
 
-  isLocked() {
+  /**
+   * A selection is considered locked if all items in the
+   * selection are locked.
+   */
+  isLocked(): boolean {
     return !this.getItems().find(item => !item.locked);
+  }
+
+  /**
+   * Returns a minimal representation of selection
+   * for selection list like this:
+   *
+   * Folder1      <- selected
+   *  |_ Item1    <- selected
+   *  \_ Folder2  <- selected
+   * Item3        <- selected
+   * Folder3
+   *  |_ Item3
+   *  \_ Item4    <- selected
+   *
+   *  returns Folder1, Item3, Item4
+   */
+  getRootNodes(): TSceneNode[] {
+    const rootNodes: TSceneNode[] = [];
+    const foldersIds: string[] = [];
+    this.getNodes().forEach(node => {
+      if (!foldersIds.includes(node.parentId)) {
+        rootNodes.push(node);
+      }
+      if (node.isFolder()) foldersIds.push(node.id);
+    });
+    return rootNodes;
+  }
+
+  /**
+   * Returns the closest common parent folder for selection if exists
+   */
+  getClosestParent(): SceneItemFolder {
+    const rootNodes = this.getRootNodes();
+    const paths: string[][] = [];
+
+    for (const node of rootNodes) {
+      if (!node.parentId) return null;
+      paths.push(node.getPath());
+    }
+
+    const minPathLength = Math.min(...paths.map(path => path.length));
+    let closestParentId = '';
+
+    for (let ind = 0; ind < minPathLength; ind++) {
+      const parents = paths.map(path => path[ind]);
+      if (uniq(parents).length === 1) {
+        closestParentId = parents[0];
+      } else {
+        return this.getScene().getFolder(closestParentId);
+      }
+    }
+  }
+
+  canGroupIntoFolder(): boolean {
+    const selectedNodes = this.getRootNodes();
+    const nodesFolders = selectedNodes.map(node => node.parentId || null);
+    const nodesHaveTheSameParent = uniq(nodesFolders).length === 1;
+    return selectedNodes.length > 1 && nodesHaveTheSameParent;
+  }
+
+  getSources(): Source[] {
+    // TODO: we're never updating sourceIds, the condition below will always fail
+    const sourcesIds: string[] = [];
+    const sources: Source[] = [];
+    this.getItems().forEach(item => {
+      const source = item.getSource();
+      if (sourcesIds.includes(source.sourceId)) return;
+      sources.push(source);
+    });
+    return sources;
   }
 
   // SCENE_ITEM METHODS
@@ -421,6 +384,27 @@ export class Selection implements ISelection {
 
   resetTransform() {
     this.getItems().forEach(item => item.resetTransform());
+  }
+
+  /**
+   * Scale items.
+   * Origin is the center point of scaling relative to the bounding-box of the selection
+   * Where origin = [0, 0] - is top-left corner and [1, 1] is the bottom right corner of the selection
+   */
+  scale(scale: IVec2, origin: IVec2 = AnchorPositions[AnchorPoint.Center]) {
+    const originPos = this.getBoundingRect().getOffsetFromOrigin(origin);
+    this.getItems().forEach(item => item.scaleWithOffset(scale, originPos));
+  }
+
+  /**
+   * same as .scale() but use absolute `offset` point instead of a relative `origin` point
+   */
+  scaleWithOffset(scale: IVec2, offset: IVec2) {
+    this.scale(scale, this.getBoundingRect().getOriginFromOffset(offset));
+  }
+
+  setDeltaPos(dir: 'x' | 'y', delta: number) {
+    this.getItems().forEach(item => item.setDeltaPos(dir, delta));
   }
 
   flipY() {
@@ -443,6 +427,14 @@ export class Selection implements ISelection {
     this.getItems().forEach(item => item.centerOnScreen());
   }
 
+  centerOnHorizontal() {
+    this.getItems().forEach(item => item.centerOnAxis(CenteringAxis.X));
+  }
+
+  centerOnVertical() {
+    this.getItems().forEach(item => item.centerOnAxis(CenteringAxis.Y));
+  }
+
   rotate(deg: number) {
     this.getItems().forEach(item => item.rotate(deg));
   }
@@ -451,24 +443,23 @@ export class Selection implements ISelection {
     this.getItems().forEach(item => item.setContentCrop());
   }
 
-
   remove() {
     this.getNodes().forEach(node => node.remove());
   }
 
-  nudgeActiveItemsLeft() {
+  nudgeLeft() {
     this.getItems().forEach(item => item.nudgeLeft());
   }
 
-  nudgeActiveItemRight() {
+  nudgeRight() {
     this.getItems().forEach(item => item.nudgeRight());
   }
 
-  nudgeActiveItemsUp() {
+  nudgeUp() {
     this.getItems().forEach(item => item.nudgeUp());
   }
 
-  nudgeActiveItemsDown() {
+  nudgeDown() {
     this.getItems().forEach(item => item.nudgeDown());
   }
 
@@ -476,12 +467,29 @@ export class Selection implements ISelection {
     return { sceneId: this.sceneId, ...this.state };
   }
 
+  placeAfter(sceneNodeId: string) {
+    this.getRootNodes()
+      .reverse()
+      .forEach(node => node.placeAfter(sceneNodeId));
+  }
+
+  placeBefore(sceneNodeId: string) {
+    this.getRootNodes().forEach(node => node.placeBefore(sceneNodeId));
+  }
+
+  setParent(sceneNodeId: string) {
+    this.getRootNodes()
+      .reverse()
+      .forEach(node => node.setParent(sceneNodeId));
+  }
+
   /**
    * returns an array of sceneItem ids
    */
   private resolveItemsList(itemsList: TNodesList): string[] {
-    if (Array.isArray(itemsList)) {
+    if (!itemsList) return [];
 
+    if (Array.isArray(itemsList)) {
       if (!itemsList.length) {
         return [];
       }
@@ -490,7 +498,6 @@ export class Selection implements ISelection {
         return itemsList as string[];
       }
       return (itemsList as ISceneItemNode[]).map(item => item.id);
-
     }
 
     if (typeof itemsList === 'string') {
@@ -504,6 +511,3 @@ export class Selection implements ISelection {
     Object.assign(this.state, state);
   }
 }
-
-// Apply a mixin to selection service to have a reactive state
-Utils.applyMixins(SelectionService, [Selection]);

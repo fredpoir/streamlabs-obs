@@ -1,11 +1,17 @@
 <template>
 <li
   class="nav-item"
-  :class="{ active: to === value, disabled: enabled == false }"
+  :class="{ active: to === value, disabled: enabled === false, 'nav-item--child': isSubItem }"
   @click="onClickHandler"
 >
-  <i v-if="ico" :class="'fa fa-' + ico" @click="onIconClickHandler"></i>
-  <slot></slot>
+  <i v-if="ico" :class="ico" @click="onIconClickHandler"></i>
+  <div class="nav-item__content">
+    <slot></slot>
+    <div v-if="expanded" class="nav-item__children">
+      <slot name='children'></slot>
+    </div>
+  </div>
+  <i v-if="expandable" :class="expanded ? 'icon-subtract' : 'icon-add'" />
 </li>
 </template>
 
@@ -15,22 +21,33 @@
 @import "../../styles/index";
 
 .nav-item {
+  .margin-bottom();
+  .text-transform();
+
   cursor: pointer;
   list-style: none;
   border-left: 1px solid transparent;
-  padding-left: 50px;
-  opacity: 0.7;
+  padding-left: 46px;
   font-size: 14px;
-  margin-bottom: 5px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-start;
+
+  &.nav-item--child {
+    padding-left: 0;
+    border-left: 0;
+  }
 
   &.active {
-    opacity: 1;
-    .semibold;
-    border-color: @navy;
-    color: @navy;
+    .weight(@medium);
 
-    .fa {
-      color: @navy;
+    opacity: 1;
+    border-color: var(--nav-border);
+    color: var(--title);
+
+    .fa,
+    i {
+      color: var(--title);
     }
   }
 
@@ -43,24 +60,27 @@
     cursor: default;
   }
 
-  .fa {
-    color: #999;
+  .fa,
+  i {
+    color: var(--icon);
     position: relative;
-    margin-right: -15px;
-    left: -25px;
-  }
-}
-.night-theme {
-  .nav-item {
-    &.active {
-      border-color: @white;
-      color: @white;
-
-      .fa {
-        color: @white;
-      }
-    }
+    margin-right: -16px;
+    left: -24px;
+    width: 16px;
+    padding: 3px 0;
   }
 }
 
+.nav-item__content {
+  overflow: hidden;
+  // max-width: calc(~"100% - 20px");
+  width: 100%;
+  max-width: 100%;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nav-item__children {
+  .margin-top();
+}
 </style>

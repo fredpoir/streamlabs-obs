@@ -1,9 +1,10 @@
-import { Service } from './service';
+import { Service } from './core/service';
 import path from 'path';
 import fs from 'fs';
 import https from 'https';
 import electron from 'electron';
-import { EFontStyle } from 'obs-studio-node';
+import { AppService } from 'services/app';
+import { Inject } from 'services/core/injector';
 
 export interface IFamilyWithStyle {
   family: IFontFamily;
@@ -20,30 +21,33 @@ export interface IFontFamily {
   styles: IFontStyle[];
 }
 
-
 export interface IFontManifest {
   families: IFontFamily[];
 }
 
-
 export class FontLibraryService extends Service {
-
-
   private manifest: IFontManifest;
 
+  @Inject() appService: AppService;
+
+  // Used to prevent downloading the same font multiple times
+  fontDownloadPromises: Dictionary<Promise<string>> = {};
 
   getManifest(): Promise<IFontManifest> {
     if (!this.manifest) {
       const req = new Request(this.libraryUrl('manifest.json'));
 
-      return fetch(req).then(response => {
-        return response.json();
-      }).then(json => {
-        this.manifest = json;
-        return json;
-      }).catch(() => {
-        return { families: [] };
-      });
+      return fetch(req)
+        .then(response => {
+          return response.json();
+        })
+        .then(json => {
+          this.manifest = json;
+          return json;
+        })
+        .catch(() => {
+          return { families: [] };
+        });
     }
 
     return Promise.resolve(this.manifest);
@@ -55,16 +59,14 @@ export class FontLibraryService extends Service {
     });
   }
 
-
   findStyle(family: string, style: string): Promise<IFontStyle> {
     return this.findFamily(family).then(fam => {
       return fam.styles.find(sty => sty.name === style);
     });
   }
 
-
   // Finds family and style info about a given font path
-  lookupFontInfo(fontPath: string): Promise<{ family: string, style: string }> {
+  lookupFontInfo(fontPath: string): Promise<{ family: string; style: string }> {
     return this.getManifest().then(manifest => {
       let family: string;
       let style: string;
@@ -86,17 +88,19 @@ export class FontLibraryService extends Service {
     });
   }
 
-
   // Returns a promise that resolves with a path to the downloaded font
   downloadFont(file: string): Promise<string> {
     const fontPath = this.libraryPath(file);
 
+    if (this.fontDownloadPromises[file]) return this.fontDownloadPromises[file];
+
     // Don't re-download the font if we have already downloaded it
     if (fs.existsSync(fontPath)) {
-      return Promise.resolve(fontPath);
+      this.fontDownloadPromises[file] = Promise.resolve(fontPath);
+      return this.fontDownloadPromises[file];
     }
 
-    return new Promise(resolve => {
+    this.fontDownloadPromises[file] = new Promise(resolve => {
       this.ensureFontsDirectory();
 
       https.get(this.libraryUrl(file), response => {
@@ -106,8 +110,9 @@ export class FontLibraryService extends Service {
         response.pipe(fontFile);
       });
     });
-  }
 
+    return this.fontDownloadPromises[file];
+  }
 
   private ensureFontsDirectory() {
     if (!fs.existsSync(this.fontsDirectory)) {
@@ -115,21 +120,17 @@ export class FontLibraryService extends Service {
     }
   }
 
-
   private get fontsDirectory() {
-    return path.join(electron.remote.app.getPath('userData'), 'Fonts');
+    return path.join(this.appService.appDataDirectory, 'Fonts');
   }
-
 
   // Create a local font library path from a filename
   private libraryPath(file: string) {
     return path.join(this.fontsDirectory, file);
   }
 
-
   // Create an s3 font library url from a filename
   private libraryUrl(file: string) {
     return `https://d1g6eog1uhe0xm.cloudfront.net/fonts/${file}`;
   }
-
 }

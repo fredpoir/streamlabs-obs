@@ -5,18 +5,16 @@
     :options="{draggable: draggableSelector}"
     @change="handleChange">
     <li
+      v-for="(item, index) in normalizedItems"
+      :key="item.value"
       class="selector-item"
       :class="{ 'selector-item--active': activeItems.includes(item.value) }"
-      v-for="(item, index) in normalizedItems"
       @contextmenu.stop="(ev) => handleContextMenu(ev, index)"
       @click="(ev) => handleSelect(ev, index)"
       @dblclick="(ev) => handleDoubleClick(ev, index)">
-      <div class="selector-item-text">
-        {{item.name}}
-      </div>
+      <div class="selector-item-text">{{item.name}}</div>
       <div class="selector-actions">
         <slot name="actions" :item="item"/>
-        <i v-if="draggable" class="icon-btn fa fa-bars fa-rotate-90 selector-drag-handle"/>
       </div>
     </li>
   </draggable>
@@ -29,48 +27,44 @@
 @import "../styles/index";
 
 .sortable-ghost {
-  opacity: .7;
+  opacity: 0.7;
   background-image: none;
 }
 
 .sortable-chosen {
-  opacity: .7;
+  opacity: 0.7;
   background-image: none;
 }
 
 .sortable-drag {
-  border: 1px solid #ddd;
-  background-color: #eee;
+  border-color: var(--input-border);
 }
 
 .selector-list {
+  .radius();
+
   list-style-type: none;
   margin: 0;
   overflow: auto;
-
-  .selector-item {
-    &:first-child {
-      border-top-color: transparent;
-    }
-  }
 }
 
 .selector-item {
+  .padding-h-sides(2);
+  .transition();
+
   display: flex;
   flex-direction: row;
   align-items: center;
-  padding: 4px 12px;
+  line-height: 30px;
   cursor: pointer;
   justify-content: space-between;
-  border-top: 1px solid transparent;
-  border-bottom: 1px solid transparent;
-  color: @navy;
-  .transition;
+  color: var(--paragraph);
+  border: 1px solid transparent;
 
   &.selector-item--active {
-    background-color: @white;
-    border-color: @day-border;
-    color: @navy-secondary;
+    background-color: var(--solid-input);
+    color: var(--title);
+    .weight(@medium);
 
     .selector-actions {
       opacity: 1;
@@ -97,27 +91,11 @@
   display: flex;
   flex-direction: row;
   font-size: 13px;
-  opacity: 0;
+  opacity: 0.2;
 }
 
 .selector-drag-handle {
   cursor: move;
-  .icon-hover;
-}
-
-.night-theme {
-  .sortable-ghost, .sortable-chosen {
-    background: @night-accent-light;
-  }
-
-  .selector-item {
-    color: @grey;
-
-    &.selector-item--active {
-      background-color: @night-hover;
-      border-color: transparent;
-      color: @white;
-    }
-  }
+  .icon-hover();
 }
 </style>

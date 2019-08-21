@@ -1,19 +1,25 @@
-import { Observable } from 'rxjs/Observable';
-import { TFormData } from '../../components/shared/forms/Input';
+import { Observable } from 'rxjs';
+import { TObsFormData } from 'components/obs/inputs/ObsInput';
+import { overArgs } from 'lodash-decorators';
+import Display from 'components/shared/Display.vue';
 
 export interface ICustomizationServiceState {
-  nightMode: boolean;
+  nightMode?: string;
+  theme: string;
   updateStreamInfoOnLive: boolean;
   livePreviewEnabled: boolean;
   leftDock: boolean;
   hideViewerCount: boolean;
+  folderSelection: boolean;
   livedockCollapsed: boolean;
-  previewSize: number;
   livedockSize: number;
+  bottomdockSize: number;
   performanceMode: boolean;
   chatZoomFactor: number;
   enableBTTVEmotes: boolean;
   enableFFZEmotes: boolean;
+  mediaBackupOptOut: boolean;
+  navigateToLiveOnStreamStart: boolean;
   experimental: any;
 }
 
@@ -23,7 +29,7 @@ export interface ICustomizationServiceApi {
   settingsChanged: Observable<Partial<ICustomizationSettings>>;
   setSettings(settingsPatch: Partial<ICustomizationSettings>): void;
   getSettings(): ICustomizationSettings;
-  getSettingsFormData(): TFormData;
-  getExperimentalSettingsFormData(): TFormData;
+  getSettingsFormData(): TObsFormData;
+  getExperimentalSettingsFormData(): TObsFormData;
   restoreDefaults(): void;
 }

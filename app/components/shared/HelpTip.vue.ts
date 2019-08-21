@@ -1,11 +1,10 @@
 import Vue from 'vue';
 import { Component, Prop } from 'vue-property-decorator';
-import { Inject } from 'util/injector';
+import { Inject } from 'services/core/injector';
 import { DismissablesService, EDismissable } from 'services/dismissables';
 
 @Component({})
 export default class HelpTip extends Vue {
-
   @Inject() dismissablesService: DismissablesService;
   @Prop() dismissableKey: EDismissable;
 

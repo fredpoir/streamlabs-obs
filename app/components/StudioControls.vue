@@ -12,50 +12,50 @@
 @import "../styles/index";
 
 .studio-controls {
+  .padding-h-sides();
+
   height: 240px;
   width: 100%;
-  padding: 20px 10px;
+  margin: 0;
 }
 </style>
 
 <style lang="less">
 @import "../styles/index";
 
+.studio-controls {
+  position: relative;
+}
+
 .studio-controls-panel {
+  .padding-h-sides();
+
   display: flex;
   flex-direction: column;
   height: 100%;
-  padding: 0 10px;
   position: relative;
 }
 
 .studio-controls-top {
+  .margin-bottom();
+
   display: flex;
   flex-direction: row;
   align-items: center;
-  margin-bottom: 10px;
   justify-content: space-between;
   flex: 0 0 20px;
 }
 
 .studio-controls__label {
+  color: var(--title);
   margin-bottom: 0;
-  .semibold;
-  color: @grey;
 }
 
 .studio-controls-selector {
-  background: @day-secondary;
-  .border;
-  .radius;
+  .radius();
+
+  background: var(--section);
   flex-grow: 1;
   overflow-y: auto;
-}
-
-.night-theme {
-  .studio-controls-selector {
-    background: @navy-secondary;
-    border-color: @navy-secondary;
-  }
 }
 </style>

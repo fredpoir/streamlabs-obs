@@ -1,16 +1,12 @@
-import { StatefulService, mutation } from 'services/stateful-service';
-import {
-  ISceneCollectionsManifestEntry,
-  ISceneCollectionSchema,
-  ISceneCollectionsServiceApi
-} from '.';
+import { mutation, StatefulService } from 'services/core/stateful-service';
+import { ISceneCollectionsManifestEntry } from '.';
 import Vue from 'vue';
 import fs from 'fs';
 import path from 'path';
-import electron from 'electron';
-import { ISceneCollectionsResponse } from './server-api';
 import { FileManagerService } from 'services/file-manager';
-import { Inject } from 'util/injector';
+import { Inject } from 'services/core/injector';
+import { AppService } from 'services/app';
+import omit from 'lodash/omit';
 
 interface ISceneCollectionsManifest {
   activeId: string;
@@ -25,14 +21,13 @@ interface ISceneCollectionsManifest {
  * to the rest of the app.  It is an internal module in the scene collections
  * service.
  */
-export class SceneCollectionsStateService extends StatefulService<
-  ISceneCollectionsManifest
-> {
+export class SceneCollectionsStateService extends StatefulService<ISceneCollectionsManifest> {
   @Inject() fileManagerService: FileManagerService;
+  @Inject() appService: AppService;
 
   static initialState: ISceneCollectionsManifest = {
     activeId: null,
-    collections: []
+    collections: [],
   };
 
   get collections() {
@@ -62,7 +57,7 @@ export class SceneCollectionsStateService extends StatefulService<
       console.warn('Error loading manifest file from disk');
     }
 
-    await this.flushManifestFile();
+    this.flushManifestFile();
   }
 
   /**
@@ -70,23 +65,24 @@ export class SceneCollectionsStateService extends StatefulService<
    * errors.  If possible, it will attempt to recover it.
    * Otherwise, it will return undefined.
    */
-  async checkAndRecoverManifest(obj: ISceneCollectionsManifest): Promise<ISceneCollectionsManifest> {
+  async checkAndRecoverManifest(
+    obj: ISceneCollectionsManifest,
+  ): Promise<ISceneCollectionsManifest> {
     // If there is no collections array, this is unrecoverable
     if (!Array.isArray(obj.collections)) return;
 
     // Filter out collections we can't recover, and fix ones we can
-    const filtered = obj.collections.filter(coll => {
+    obj.collections = obj.collections.filter(coll => {
       // If there is no id, this is unrecoverable
       if (coll.id == null) return false;
 
       // We can recover these
       if (coll.deleted == null) coll.deleted = false;
-      if (coll.modified == null) coll.modified = (new Date()).toISOString();
+      if (coll.modified == null) coll.modified = new Date().toISOString();
 
       return true;
     });
 
-    obj.collections = filtered;
     return obj;
   }
 
@@ -94,36 +90,45 @@ export class SceneCollectionsStateService extends StatefulService<
    * The manifest file is simply a copy of the Vuex state of this
    * service, persisted to disk.
    */
-  async flushManifestFile() {
-    const data = JSON.stringify(this.state, null, 2);
-    await this.writeDataToCollectionFile('manifest', data);
+  flushManifestFile() {
+    const data = JSON.stringify(omit(this.state, 'auto'), null, 2);
+    this.writeDataToCollectionFile('manifest', data);
   }
 
   /**
    * Checks if a collection file exists
    * @param id the id of the collection
+   * @param backup Whether to look for the backup version
    */
-  async collectionFileExists(id: string) {
-    const filePath = this.getCollectionFilePath(id);
+  async collectionFileExists(id: string, backup?: boolean) {
+    let filePath = this.getCollectionFilePath(id);
+    if (backup) filePath = `${filePath}.bak`;
     return this.fileManagerService.exists(filePath);
   }
 
   /**
    * Reads the contents of the file into a string
    * @param id The id of the collection
+   * @param backup Whether the read the backup version
    */
-  readCollectionFile(id: string) {
-    const filePath = this.getCollectionFilePath(id);
-    return this.fileManagerService.read(filePath);
+  readCollectionFile(id: string, backup?: boolean) {
+    let filePath = this.getCollectionFilePath(id);
+    if (backup) filePath = `${filePath}.bak`;
+    return this.fileManagerService.read(filePath, {
+      validateJSON: true,
+      retries: 2,
+    });
   }
 
   /**
    * Writes data to a collection file
    * @param id The id of the file
    * @param data The data to write
+   * @param backup Whether to write to the backup version
    */
-  writeDataToCollectionFile(id: string, data: string) {
-    const collectionPath = this.getCollectionFilePath(id);
+  writeDataToCollectionFile(id: string, data: string, backup?: boolean) {
+    let collectionPath = this.getCollectionFilePath(id);
+    if (backup) collectionPath = `${collectionPath}.bak`;
     this.fileManagerService.write(collectionPath, data);
   }
 
@@ -135,7 +140,7 @@ export class SceneCollectionsStateService extends StatefulService<
   copyCollectionFile(sourceId: string, destId: string) {
     this.fileManagerService.copy(
       this.getCollectionFilePath(sourceId),
-      this.getCollectionFilePath(destId)
+      this.getCollectionFilePath(destId),
     );
   }
 
@@ -162,10 +167,7 @@ export class SceneCollectionsStateService extends StatefulService<
   }
 
   get collectionsDirectory() {
-    return path.join(
-      electron.remote.app.getPath('userData'),
-      'SceneCollections'
-    );
+    return path.join(this.appService.appDataDirectory, 'SceneCollections');
   }
 
   getCollectionFilePath(id: string) {
@@ -178,13 +180,14 @@ export class SceneCollectionsStateService extends StatefulService<
   }
 
   @mutation()
-  ADD_COLLECTION(id: string, name: string, modified: string) {
+  ADD_COLLECTION(id: string, name: string, modified: string, auto = false) {
     this.state.collections.unshift({
       id,
       name,
-      deleted: false,
       modified,
-      needsRename: false
+      auto,
+      deleted: false,
+      needsRename: false,
     });
   }
 
@@ -218,9 +221,7 @@ export class SceneCollectionsStateService extends StatefulService<
 
   @mutation()
   HARD_DELETE_COLLECTION(id: string) {
-    this.state.collections = this.state.collections.filter(
-      coll => coll.id !== id
-    );
+    this.state.collections = this.state.collections.filter(coll => coll.id !== id);
   }
 
   @mutation()

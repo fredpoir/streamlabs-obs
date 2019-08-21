@@ -6,11 +6,11 @@
 
       <DropdownMenu class="scene-collections__dropdown" :title="activeCollection.name">
         <div class="input-wrapper input-wrapper--search">
-          <input class="input--search" type="text" placeholder="Search" v-model="searchQuery" />
+          <input class="input--search" type="text" :placeholder="$t('Search')" v-model="searchQuery" />
         </div>
 
         <div class="link link--pointer" @click="manageCollections">
-          Manage All
+          {{ $t('Manage All') }}
         </div>
         <div class="dropdown-menu__separator"></div>
         <div
@@ -26,34 +26,42 @@
 
     </div>
 
-    <div>
+    <div style="display: flex;">
       <i
-        class="fa fa-plus icon-btn icon-btn--lg"
-        @click="addScene"/>
+        class="icon-add icon-button icon-button--lg"
+        @click="addScene"
+        v-tooltip.bottom="addSceneTooltip" />
       <i
-        class="fa fa-minus icon-btn icon-btn--lg"
-        @click="removeScene"/>
+        class="icon-subtract icon-button icon-button--lg"
+        @click="removeScene"
+        v-tooltip.bottom="removeSceneTooltip" />
       <i
-        class="fa fa-cog icon-btn icon-btn--lg"
-        @click="showTransitions"/>
+        class="icon-settings icon-button icon-button--lg"
+        @click="showTransitions"
+        v-tooltip.bottom="showTransitionsTooltip"/>
     </div>
   </div>
 
-  <selector
-    class="studio-controls-selector"
-    :items="scenes"
-    :activeItems="activeSceneId ? [activeSceneId] : []"
+  <sl-vue-tree
+    data-name="scene-selector"
+    :value="scenes"
+    ref="slVueTree"
     @select="makeActive"
-    @sort="handleSort"
-    @contextmenu="showContextMenu"
-  />
+    @input="handleSort"
+    @contextmenu.native="showContextMenu()">
+
+    <template slot="title" slot-scope="{ node }">
+      <div>{{ node.title }}</div>
+    </template>
+
+  </sl-vue-tree>
 
   <help-tip :dismissable-key="helpTipDismissable">
     <div slot="title">
-      Scene Collections
+      {{ $t('Scene Collections') }}
     </div>
     <div slot="content">
-      This is where your <span class="semibold">Scene Collections</span> live. Clicking the title will dropdown a menu where you can view & manage.
+      {{ $t('This is where your Scene Collections live. Clicking the title will dropdown a menu where you can view & manage.') }}
     </div>
   </help-tip>
 </div>
@@ -68,6 +76,7 @@
   position: relative;
   display: flex;
   align-items: center;
+  width: 50%;
 }
 
 .input-wrapper--search {
@@ -77,5 +86,9 @@
 
 .scene-collections__dropdown {
   min-width: 200px;
+
+  & /deep/ .popper {
+    text-align: left;
+  }
 }
 </style>

@@ -1,17 +1,19 @@
 <template>
 <modal-layout
-  title="Manage Scene Collections"
   :show-cancel="false"
   :done-handler="close">
   <div slot="content">
     <div class="manage-scene-collections__header">
       <div class="input-wrapper input-wrapper--search">
-        <input class="input--search" type="text" placeholder="Search" v-model="searchQuery" />
+        <input class="input--search" type="text" :placeholder="$t('Search')" v-model="searchQuery" />
       </div>
 
+      <button class="button button--action" @click="importFromObs">
+        {{ $t('Import from OBS') }}
+      </button>
       <button class="button button--action" @click="create">
         <i class="fa fa-plus" />
-        Create New
+        {{ $t('Create New') }}
       </button>
     </div>
     <editable-scene-collection
@@ -28,21 +30,14 @@
 @import "../../styles/index";
 
 .manage-scene-collections__header {
+  .flex();
+  .flex--space-between();
+
   margin-bottom: 20px;
-  .flex;
-  .flex--space-between;
   align-items: center;
 }
 
 .input-wrapper--search {
   width: 50%;
-}
-
-.night-theme {
-  .manage-scene-collections--new {
-    &:hover {
-      background: @night-hover;
-    }
-  }
 }
 </style>

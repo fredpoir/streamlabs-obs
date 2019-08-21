@@ -1,3 +1,6 @@
+/**
+ * Compare screenshots and create diffs
+ */
 const fs = require('fs');
 const PNG = require('pngjs').PNG;
 const pixelmatch = require('pixelmatch');
@@ -12,7 +15,7 @@ console.log('branches to compare:', branches);
 const images = fs.readdirSync(`${CONFIG.dist}/${newBranchName}`);
 
 interface IState {
-  regressions: {[imageName: string]: IRegression};
+  regressions: { [imageName: string]: IRegression };
   branches: string[];
   totalScreens: number;
   changedScreens: number;
@@ -20,7 +23,6 @@ interface IState {
   config: Dictionary<any>;
   configs: Dictionary<any>[];
 }
-
 
 interface IRegression {
   name: string;
@@ -38,21 +40,20 @@ interface IParsedImage {
   diff: any;
 }
 
-const parsedImages: {[imageName: string]: IParsedImage } = {};
+const parsedImages: { [imageName: string]: IParsedImage } = {};
 
 (async function main() {
-
   if (!fs.existsSync(`${CONFIG.dist}/diff`)) fs.mkdirSync(`${CONFIG.dist}/diff`);
 
   const configs = getConfigsVariations();
   const state: IState = {
+    branches,
+    configs,
     regressions: {},
     totalScreens: 0,
     changedScreens: 0,
     newScreens: 0,
     config: CONFIG,
-    configs,
-    branches
   };
 
   console.log('read images...');
@@ -82,7 +83,7 @@ const parsedImages: {[imageName: string]: IParsedImage } = {};
         diffImage,
         isNew,
         params,
-        isChanged: false
+        isChanged: false,
       };
 
       if (isNew) {
@@ -90,15 +91,19 @@ const parsedImages: {[imageName: string]: IParsedImage } = {};
         doneReading(2);
       } else {
         parsedImages[image] = {
-          base: fs.createReadStream(baseImage).pipe(new PNG()).on('parsed', () => doneReading(1)),
-          branch: fs.createReadStream(branchImage).pipe(new PNG()).on('parsed', () => doneReading(1)),
-          diff: null
+          base: fs
+            .createReadStream(baseImage)
+            .pipe(new PNG())
+            .on('parsed', () => doneReading(1)),
+          branch: fs
+            .createReadStream(branchImage)
+            .pipe(new PNG())
+            .on('parsed', () => doneReading(1)),
+          diff: null,
         };
       }
-
     }
   });
-
 
   console.log('compare images...');
   for (const image of images) {
@@ -115,7 +120,7 @@ const parsedImages: {[imageName: string]: IParsedImage } = {};
       parsedImage.diff.data,
       baseImage.width,
       baseImage.height,
-      { threshold: 0.1 }
+      { threshold: CONFIG.threshold },
     );
 
     regression.isChanged = numDiffPixels > 0;
@@ -135,7 +140,7 @@ const parsedImages: {[imageName: string]: IParsedImage } = {};
 
   // create a json and html reporting file
 
-  const stateStr = JSON.stringify(state);
+  const stateStr = JSON.stringify(state, null, 2);
 
   fs.writeFile(`${CONFIG.dist}/state.json`, stateStr, () => {
     console.log('state.json is created');
@@ -146,5 +151,4 @@ const parsedImages: {[imageName: string]: IParsedImage } = {};
   fs.writeFile(`${CONFIG.dist}/preview.html`, previewHtml, () => {
     console.log('preview.html is created');
   });
-
 })();

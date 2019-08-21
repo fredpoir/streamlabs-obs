@@ -2,17 +2,17 @@ import Vue from 'vue';
 import { Component, Prop } from 'vue-property-decorator';
 import { ISourceApi } from 'services/sources';
 import { getDefinitions, IStreamlabelDefinition } from 'services/streamlabels/definitions';
-import { Inject } from 'util/injector';
+import { Inject } from 'services/core/injector';
 import { UserService } from 'services/user';
 import { Multiselect } from 'vue-multiselect';
 import { StreamlabelsService, IStreamlabelSettings } from 'services/streamlabels';
-import { debounce, pick } from 'lodash';
+import debounce from 'lodash/debounce';
+import pick from 'lodash/pick';
 
 @Component({
-  components: { Multiselect }
+  components: { Multiselect },
 })
 export default class StreamlabelProperties extends Vue {
-
   @Prop() source: ISourceApi;
 
   @Inject() userService: UserService;
@@ -32,7 +32,6 @@ export default class StreamlabelProperties extends Vue {
     this.debouncedSetSettings = debounce(() => this.setSettings(), 1000);
   }
 
-
   refreshPropertyValues() {
     const settings = this.source.getPropertiesManagerSettings();
 
@@ -47,7 +46,10 @@ export default class StreamlabelProperties extends Vue {
           this.labelSettings = this.streamlabelsService.getSettingsForStat(settingsStat);
 
           if (file.settings.settingsWhitelist) {
-            this.labelSettings = pick(this.labelSettings, file.settings.settingsWhitelist);
+            this.labelSettings = pick(
+              this.labelSettings,
+              file.settings.settingsWhitelist,
+            ) as IStreamlabelSettings;
           }
         }
       });
@@ -58,7 +60,6 @@ export default class StreamlabelProperties extends Vue {
     this.source.setPropertiesManagerSettings({ statname: value.name });
     this.refreshPropertyValues();
   }
-
 
   debouncedSetSettings: () => void;
 
@@ -77,13 +78,12 @@ export default class StreamlabelProperties extends Vue {
     }
 
     this.streamlabelsService.setSettingsForStat(
-      this.currentlySelected.settings.settingsStat ?
-        this.currentlySelected.settings.settingsStat :
-        this.currentlySelected.name,
-      this.labelSettings
+      this.currentlySelected.settings.settingsStat
+        ? this.currentlySelected.settings.settingsStat
+        : this.currentlySelected.name,
+      this.labelSettings,
     );
   }
-
 
   /**
    * Returns the preview split on newlines
@@ -91,7 +91,6 @@ export default class StreamlabelProperties extends Vue {
   get splitPreview() {
     return this.preview.split('\\n');
   }
-
 
   get preview() {
     if (this.labelSettings.format == null) return '';
@@ -114,24 +113,48 @@ export default class StreamlabelProperties extends Vue {
     return replaced;
   }
 
-
   get sampleItems() {
     return this.sampleItemData.map(data => {
       return this.labelSettings.item_format
         .replace(/{name}/gi, data.name)
         .replace(/{months}/gi, data.months)
         .replace(/{amount}/gi, data.amount)
-        .replace(/{either_amount}/gi, [data.amount, data.bits_amount][Math.floor(Math.random() * 2)])
+        .replace(
+          /{either_amount}/gi,
+          [data.amount, data.bits_amount][Math.floor(Math.random() * 2)],
+        )
         .replace(/{message}/gi, data.message);
     });
   }
 
-
   sampleItemData = [
-    { name: 'Fishstickslol', months: '5', amount: '$4.98', message: 'I love you!', bits_amount: '498 Bits' },
-    { name: 'ChocoPie', months: '2', amount: '$5', message: 'I love you!', bits_amount: '500 Bits' },
-    { name: 'Beecreative', months: '3', amount: '$1.43', message: 'I love you!', bits_amount: '143 Bits' },
-    { name: 'ActionBa5tard', months: '1', amount: '$13.37', message: 'Love your stream!', bits_amount: '1337 Bits'}
+    {
+      name: 'Fishstickslol',
+      months: '5',
+      amount: '$4.98',
+      message: 'I love you!',
+      bits_amount: '498 Bits',
+    },
+    {
+      name: 'ChocoPie',
+      months: '2',
+      amount: '$5',
+      message: 'I love you!',
+      bits_amount: '500 Bits',
+    },
+    {
+      name: 'Beecreative',
+      months: '3',
+      amount: '$1.43',
+      message: 'I love you!',
+      bits_amount: '143 Bits',
+    },
+    {
+      name: 'ActionBa5tard',
+      months: '1',
+      amount: '$13.37',
+      message: 'Love your stream!',
+      bits_amount: '1337 Bits',
+    },
   ];
-
 }

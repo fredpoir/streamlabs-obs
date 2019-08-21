@@ -1,4 +1,4 @@
-import { Observable } from 'rxjs/Observable';
+import { Observable } from 'rxjs';
 
 export interface ISceneCollectionsServiceApi {
   /**
@@ -11,13 +11,20 @@ export interface ISceneCollectionsServiceApi {
    * Create and load a new empty scene collection
    * @param options an optional options object
    */
-  create(options?: ISceneCollectionCreateOptions): Promise<void>;
+  create(options?: ISceneCollectionCreateOptions): Promise<ISceneCollectionsManifestEntry>;
 
   /**
    * Fetch a list of all scene collections and information
    * about the scene and sources inside them.
    */
   fetchSceneCollectionsSchema(): Promise<ISceneCollectionSchema[]>;
+
+  /**
+   * Install a new overlay from a file path
+   * @param filePath the location of the overlay file
+   * @param name the name of the overlay
+   */
+  loadOverlay(filePath: string, name: string): Promise<void>;
 
   /**
    * Contains a list of collections
@@ -56,7 +63,6 @@ export interface ISceneCollectionsServiceApi {
 }
 
 export interface ISceneCollectionCreateOptions {
-  setupFunction?: () => boolean;
   needsRename?: boolean;
   name?: string;
 }
@@ -68,7 +74,7 @@ export interface ISceneCollectionSchema {
   scenes: {
     id: string;
     name: string;
-    sceneItems: { sceneItemId: string, sourceId: string }[]
+    sceneItems: { sceneItemId: string; sourceId: string }[];
   }[];
 
   sources: {
@@ -86,4 +92,11 @@ export interface ISceneCollectionsManifestEntry {
   deleted: boolean;
   modified: string;
   needsRename: boolean;
+
+  /**
+   * This scene collection was created automatically this session because
+   * there were no scene collections present.  This attribute is not persisted
+   * past a single app life cycle.
+   */
+  auto?: boolean;
 }

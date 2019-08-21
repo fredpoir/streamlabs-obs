@@ -1,28 +1,40 @@
 import Vue from 'vue';
 import { Component } from 'vue-property-decorator';
-import { Inject } from 'util/injector';
+import { Inject } from 'services/core/injector';
 import { SceneCollectionsService } from 'services/scene-collections';
 import { OverlaysPersistenceService } from 'services/scene-collections/overlays';
+import { CustomizationService } from 'services/customization';
 import electron from 'electron';
 import path from 'path';
 import { AppService } from 'services/app';
 import { WidgetsService } from 'services/widgets';
 import { ScenesService } from 'services/scenes';
+import { $t } from 'services/i18n';
+import { BoolInput } from 'components/shared/inputs/inputs';
 
-@Component({})
+@Component({ components: { BoolInput } })
 export default class OverlaySettings extends Vue {
   @Inject() sceneCollectionsService: SceneCollectionsService;
   @Inject() overlaysPersistenceService: OverlaysPersistenceService;
   @Inject() appService: AppService;
   @Inject() widgetsService: WidgetsService;
   @Inject() scenesService: ScenesService;
+  @Inject() customizationService: CustomizationService;
 
   busy = false;
   message = '';
 
+  get mediaBackupOptOut(): boolean {
+    return this.customizationService.state.mediaBackupOptOut;
+  }
+
+  set mediaBackupOptOut(value: boolean) {
+    this.customizationService.setMediaBackupOptOut(value);
+  }
+
   saveOverlay() {
     const chosenPath = electron.remote.dialog.showSaveDialog({
-      filters: [{ name: 'Overlay File', extensions: ['overlay'] }]
+      filters: [{ name: 'Overlay File', extensions: ['overlay'] }],
     });
 
     if (!chosenPath) return;
@@ -33,13 +45,15 @@ export default class OverlaySettings extends Vue {
     // TODO: Expose progress to the user
     this.overlaysPersistenceService.saveOverlay(chosenPath).then(() => {
       this.busy = false;
-      this.message = `Successfully saved ${path.parse(chosenPath).base}`;
+      this.message = $t('Successfully saved %{filename}', {
+        filename: path.parse(chosenPath).base,
+      });
     });
   }
 
   loadOverlay() {
     const chosenPath = electron.remote.dialog.showOpenDialog({
-      filters: [{ name: 'Overlay File', extensions: ['overlay'] }]
+      filters: [{ name: 'Overlay File', extensions: ['overlay'] }],
     });
 
     if (!chosenPath) return;
@@ -52,13 +66,13 @@ export default class OverlaySettings extends Vue {
 
     this.sceneCollectionsService.loadOverlay(chosenPath[0], configName).then(() => {
       this.busy = false;
-      this.message = `Successfully loaded ${filename}.overlay`;
+      this.message = $t('Successfully loaded %{filename}.overlay', { filename });
     });
   }
 
   loadWidget() {
     const chosenPath = electron.remote.dialog.showOpenDialog({
-      filters: [{ name: 'Widget File', extensions: ['widget'] }]
+      filters: [{ name: 'Widget File', extensions: ['widget'] }],
     });
 
     if (!chosenPath) return;

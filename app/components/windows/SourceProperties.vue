@@ -1,17 +1,18 @@
 <template>
 <modal-layout
   :title="windowTitle"
+  :disable-done="hasErrors"
   :done-handler="done"
   :cancel-handler="cancel"
   :fixedSectionHeight="200">
-  <SourcePreview slot="fixed" v-if="source" :sourceId="source.id"></SourcePreview>
+  <display slot="fixed" v-if="source && !hideStyleBlockers" :sourceId="source.id" />
   <div slot="content">
     <component
       v-if="propertiesManagerUI"
       :is="propertiesManagerUI"
       :source="source"
       @update="refresh" />
-    <GenericForm v-model="properties" @input="onInputHandler"/>
+    <GenericForm v-model="properties" @input="onInputHandler" @validate="onValidateHandler"/>
   </div>
 </modal-layout>
 </template>

@@ -1,19 +1,23 @@
 import Vue from 'vue';
 import electron from 'electron';
 import { Component } from 'vue-property-decorator';
+import { BoolInput } from 'components/shared/inputs/inputs';
 import { CacheUploaderService } from 'services/cache-uploader';
-import { Inject } from 'util/injector';
-import BoolInput from 'components/shared/forms/BoolInput.vue';
+import { Inject } from 'services/core/injector';
 import { CustomizationService } from 'services/customization';
-import { IFormInput } from 'components/shared/forms/Input';
 import { StreamlabelsService } from 'services/streamlabels';
 import { OnboardingService } from 'services/onboarding';
 import { WindowsService } from 'services/windows';
 import { UserService } from 'services/user';
 import { StreamingService } from 'services/streaming';
+import { $t } from 'services/i18n';
+import { AppService } from 'services/app';
+import fs from 'fs';
+import path from 'path';
+import { ObsImporterService } from 'services/obs-importer';
 
 @Component({
-  components: { BoolInput }
+  components: { BoolInput },
 })
 export default class ExtraSettings extends Vue {
   @Inject() cacheUploaderService: CacheUploaderService;
@@ -23,31 +27,35 @@ export default class ExtraSettings extends Vue {
   @Inject() windowsService: WindowsService;
   @Inject() userService: UserService;
   @Inject() streamingService: StreamingService;
+  @Inject() appService: AppService;
+  @Inject() obsImporterService: ObsImporterService;
 
   cacheUploading = false;
 
-  get streamInfoUpdateModel(): IFormInput<boolean> {
-    return {
-      name: 'stream_info_udpate',
-      description: 'Confirm stream title and game before going live',
-      value: this.customizationService.state.updateStreamInfoOnLive
-    };
+  get streamInfoUpdate() {
+    return this.customizationService.state.updateStreamInfoOnLive;
   }
 
-  setStreamInfoUpdate(model: IFormInput<boolean>) {
-    this.customizationService.setUpdateStreamInfoOnLive(model.value);
+  set streamInfoUpdate(value: boolean) {
+    this.customizationService.setUpdateStreamInfoOnLive(value);
+  }
+
+  get navigateToLive() {
+    return this.customizationService.state.navigateToLiveOnStreamStart;
+  }
+
+  set navigateToLive(value: boolean) {
+    this.customizationService.setNavigateToLive(value);
   }
 
   showCacheDir() {
-    electron.remote.shell.showItemInFolder(
-      electron.remote.app.getPath('userData')
-    );
+    electron.remote.shell.openItem(this.appService.appDataDirectory);
   }
 
   deleteCacheDir() {
     if (
       confirm(
-        'WARNING! You will lose all scenes, sources, and settings. This cannot be undone!'
+        $t('WARNING! You will lose all scenes, sources, and settings. This cannot be undone!'),
       )
     ) {
       electron.remote.app.relaunch({ args: ['--clearCacheDir'] });
@@ -60,7 +68,11 @@ export default class ExtraSettings extends Vue {
     this.cacheUploaderService.uploadCache().then(file => {
       electron.remote.clipboard.writeText(file);
       alert(
-        `Your cache directory has been successfully uploaded.  The file name ${file} has been copied to your clipboard.  Please paste it into discord and tag a developer.`
+        $t(
+          'Your cache directory has been successfully uploaded.  ' +
+            'The file name %{file} has been copied to your clipboard.',
+          { file },
+        ),
       );
       this.cacheUploading = false;
     });
@@ -68,7 +80,11 @@ export default class ExtraSettings extends Vue {
 
   restartStreamlabelsSession() {
     this.streamlabelsService.restartSession().then(result => {
-      if (result) alert('Streamlabels session has been succesfully restarted!');
+      if (result) {
+        electron.remote.dialog.showMessageBox({
+          message: $t('Streamlabels session has been succesfully restarted!'),
+        });
+      }
     });
   }
 
@@ -77,16 +93,54 @@ export default class ExtraSettings extends Vue {
     this.windowsService.closeChildWindow();
   }
 
+  importFromObs() {
+    this.obsImporterService.import();
+  }
+
+  get isLoggedIn() {
+    return this.userService.isLoggedIn();
+  }
+
   get isTwitch() {
-    return (
-      this.userService.isLoggedIn() &&
-      this.userService.platform.type === 'twitch'
-    );
+    return this.isLoggedIn && this.userService.platform.type === 'twitch';
+  }
+
+  get isFacebook() {
+    return this.isLoggedIn && this.userService.platform.type === 'facebook';
   }
 
   get isRecordingOrStreaming() {
-    return (
-      this.streamingService.isStreaming || this.streamingService.isRecording
-    );
+    return this.streamingService.isStreaming || this.streamingService.isRecording;
+  }
+
+  // Avoid file IO by keeping track of file state in memory while
+  // this component is mounted.
+  disableHA: boolean = null;
+
+  get disableHardwareAcceleration() {
+    if (this.disableHA == null) {
+      this.disableHA = fs.existsSync(this.disableHAFilePath);
+    }
+
+    return this.disableHA;
+  }
+
+  set disableHardwareAcceleration(val: boolean) {
+    try {
+      if (val) {
+        // Touch the file
+        fs.closeSync(fs.openSync(this.disableHAFilePath, 'w'));
+        this.disableHA = true;
+      } else {
+        fs.unlinkSync(this.disableHAFilePath);
+        this.disableHA = false;
+      }
+    } catch (e) {
+      console.error('Error setting hardware acceleration', e);
+    }
+  }
+
+  get disableHAFilePath() {
+    return path.join(this.appService.appDataDirectory, 'HADisable');
   }
 }

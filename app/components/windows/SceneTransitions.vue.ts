@@ -1,50 +1,179 @@
 import Vue from 'vue';
 import { Component } from 'vue-property-decorator';
-import { Inject } from '../../util/injector';
-import { ScenesTransitionsService } from '../../services/scenes-transitions';
-import * as inputComponents from '../shared/forms';
-import { WindowsService } from '../../services/windows';
-import { TFormData } from '../shared/forms/Input';
-import windowMixin from '../mixins/window';
-import GenericForm from '../shared/forms/GenericForm.vue';
-import ModalLayout from '../ModalLayout.vue';
+import { Inject } from 'services/core/injector';
+import { TransitionsService, ETransitionType, ITransitionConnection } from 'services/transitions';
+import { WindowsService } from 'services/windows';
+import ModalLayout from 'components/ModalLayout.vue';
+import TransitionSettings from 'components/TransitionSettings.vue';
+import { $t } from 'services/i18n';
+import Tabs, { ITab } from 'components/Tabs.vue';
+import { ScenesService } from 'services/scenes';
+import ConnectionSettings from 'components/ConnectionSettings';
+import VModal from 'vue-js-modal';
+import { EditorCommandsService } from 'services/editor-commands';
+import electron from 'electron';
+
+Vue.use(VModal);
 
 @Component({
-  mixins: [windowMixin],
   components: {
     ModalLayout,
-    GenericForm,
-    ...inputComponents
-  }
+    TransitionSettings,
+    Tabs,
+    ConnectionSettings,
+  },
 })
 export default class SceneTransitions extends Vue {
+  @Inject() transitionsService: TransitionsService;
+  @Inject() windowsService: WindowsService;
+  @Inject() scenesService: ScenesService;
+  @Inject() private editorCommandsService: EditorCommandsService;
 
-  @Inject('ScenesTransitionsService')
-  transitionsService: ScenesTransitionsService;
+  inspectedTransition = '';
+  inspectedConnection = '';
 
-  @Inject()
-  windowsService: WindowsService;
-  form = this.transitionsService.getFormData();
-  properties = this.transitionsService.getPropertiesFormData();
+  tabs: ITab[] = [
+    {
+      name: 'Transitions',
+      value: 'transitions',
+    },
+    {
+      name: 'Connections',
+      value: 'connections',
+    },
+  ];
 
+  selectedTab = 'transitions';
 
-  setTransitionType() {
-    this.transitionsService.setType(this.form.type.value);
-    this.properties = this.transitionsService.getPropertiesFormData();
+  redundantConnectionTooltip = $t(
+    'This connection is redundant because another connection already connects these scenes.',
+  );
+
+  get transitionsEnabled() {
+    return this.scenesService.scenes.length > 1;
   }
 
-
-  setTransitionDuration() {
-    this.transitionsService.setDuration(this.form.duration.value);
+  /**
+   * Scene transitions created from apps should not be editable
+   * if the app developer specified `shouldLock` as part of their
+   * scene transition creation options.
+   *
+   * @param id ID of the scene transition
+   */
+  isEditable(id: string) {
+    return this.transitionsService.getPropertiesManagerSettings(id).locked !== true;
   }
 
-  saveProperties(props: TFormData) {
-    this.transitionsService.setPropertiesFormData(props);
+  getEditableMessage(id: string) {
+    if (this.isEditable(id)) {
+      return null;
+    }
+
+    return $t('This scene transition is managed by an App and cannot be edited.');
   }
 
+  getClassNames(id: string) {
+    return this.isEditable(id) ? 'icon-edit' : 'disabled icon-lock';
+  }
+
+  // TRANSITIONS
+
+  get transitions() {
+    return this.transitionsService.state.transitions;
+  }
+
+  get defaultTransitionId() {
+    return this.transitionsService.state.defaultTransitionId;
+  }
+
+  addTransition() {
+    const transition = this.editorCommandsService.executeCommand(
+      'CreateTransitionCommand',
+      ETransitionType.Cut,
+      'New Transition',
+    );
+
+    this.editTransition(transition.id);
+  }
+
+  editTransition(id: string) {
+    if (!this.isEditable(id)) {
+      return;
+    }
+    this.inspectedTransition = id;
+    this.$modal.show('transition-settings');
+  }
+
+  deleteTransition(id: string) {
+    if (this.transitionsService.state.transitions.length === 1) {
+      electron.remote.dialog.showMessageBox({
+        message: $t('You need at least 1 transition.'),
+      });
+      return;
+    }
+
+    this.editorCommandsService.executeCommand('RemoveTransitionCommand', id);
+  }
+
+  makeDefault(id: string) {
+    this.editorCommandsService.executeCommand('SetDefaultTransitionCommand', id);
+  }
+
+  // CONNECTIONS
+
+  get connections() {
+    return this.transitionsService.state.connections;
+  }
+
+  addConnection() {
+    const connection = this.editorCommandsService.executeCommand(
+      'CreateConnectionCommand',
+      this.scenesService.scenes[0].id,
+      this.scenesService.scenes[1].id,
+      this.transitions[0].id,
+    );
+
+    this.editConnection(connection.id);
+  }
+
+  editConnection(id: string) {
+    this.inspectedConnection = id;
+    this.$modal.show('connection-settings');
+  }
+
+  deleteConnection(id: string) {
+    this.editorCommandsService.executeCommand('RemoveConnectionCommand', id);
+  }
+
+  getTransitionName(id: string) {
+    const transition = this.transitionsService.getTransition(id);
+
+    if (transition) return transition.name;
+    return `<${$t('Deleted')}>`;
+  }
+
+  getSceneName(id: string | 'ALL') {
+    if (id === 'ALL') return $t('All');
+
+    const scene = this.scenesService.getScene(id);
+
+    if (scene) return scene.name;
+    return `<${$t('Deleted')}>`;
+  }
+
+  isConnectionRedundant(id: string) {
+    return this.transitionsService.isConnectionRedundant(id);
+  }
+
+  nameForType(type: ETransitionType) {
+    return this.transitionsService.getTypes().find(t => t.value === type).title;
+  }
 
   done() {
     this.windowsService.closeChildWindow();
   }
 
+  dismissModal(modal: string) {
+    this.$modal.hide(modal);
+  }
 }

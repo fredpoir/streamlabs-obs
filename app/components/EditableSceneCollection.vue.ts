@@ -1,8 +1,9 @@
 import Vue from 'vue';
 import { Component, Prop, Watch } from 'vue-property-decorator';
 import { SceneCollectionsService } from 'services/scene-collections';
-import { Inject } from 'util/injector';
+import { Inject } from 'services/core/injector';
 import moment from 'moment';
+import { $t } from 'services/i18n';
 
 @Component({})
 export default class EditableSceneCollection extends Vue {
@@ -40,7 +41,9 @@ export default class EditableSceneCollection extends Vue {
   }
 
   get isActive() {
-    return this.collection.id === this.sceneCollectionsService.activeCollection.id;
+    return (
+      this.collection && this.collection.id === this.sceneCollectionsService.activeCollection.id
+    );
   }
 
   handleKeypress(e: KeyboardEvent) {
@@ -55,11 +58,14 @@ export default class EditableSceneCollection extends Vue {
     this.duplicating = true;
 
     setTimeout(() => {
-      this.sceneCollectionsService.duplicate(this.collection.name, this.collection.id).then(() => {
-        this.duplicating = false;
-      }).catch(() => {
-        this.duplicating = false;
-      });
+      this.sceneCollectionsService
+        .duplicate(this.collection.name, this.collection.id)
+        .then(() => {
+          this.duplicating = false;
+        })
+        .catch(() => {
+          this.duplicating = false;
+        });
     }, 500);
   }
 
@@ -79,8 +85,15 @@ export default class EditableSceneCollection extends Vue {
   }
 
   remove() {
-    if (!confirm(`Are you sure you want to remove ${this.collection.name}?`)) return;
+    if (
+      !confirm(
+        $t('Are you sure you want to remove %{collectionName}?', {
+          collectionName: this.collection.name,
+        }),
+      )
+    ) {
+      return;
+    }
     this.sceneCollectionsService.delete(this.collectionId);
   }
-
 }

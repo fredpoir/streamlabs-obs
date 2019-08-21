@@ -1,19 +1,31 @@
 /**
  * abstract class for representing scene's folders and items
  */
-import { ServiceHelper, mutation } from '../stateful-service';
-import { TSceneNodeType } from './scenes-api';
-import { Inject } from '../../util/injector';
-import { ScenesService, Scene, ISceneItemNode, SceneItemFolder, SceneItem } from './index';
+import { ServiceHelper, mutation, Inject } from 'services';
+import { TSceneNodeType } from '.';
+import {
+  ScenesService,
+  Scene,
+  ISceneItemNode,
+  SceneItemFolder,
+  SceneItem,
+  TSceneNode,
+} from './index';
 import { SelectionService } from 'services/selection';
+
+export function isFolder(node: SceneItemNode): node is SceneItemFolder {
+  return node.sceneNodeType === 'folder';
+}
+
+export function isItem(node: SceneItemNode): node is SceneItem {
+  return node.sceneNodeType === 'item';
+}
 
 @ServiceHelper()
 export abstract class SceneItemNode implements ISceneItemNode {
-
   id: string;
   parentId: string;
-  childrenIds: string[];
-  sceneNodeType: TSceneNodeType;
+  abstract sceneNodeType: TSceneNodeType;
   resourceId: string;
   sceneId: string;
 
@@ -26,13 +38,24 @@ export abstract class SceneItemNode implements ISceneItemNode {
     return this.scenesService.getScene(this.sceneId);
   }
 
+  get childrenIds(): string[] {
+    return this.getScene()
+      .getModel()
+      .nodes.filter(node => node.parentId === this.id)
+      .map(node => node.id);
+  }
+
   setParent(parentId: string) {
-    this.placeAfter(parentId);
+    // prevent to set a child folder as parent
+    if (this.isFolder() && this.getNestedNodesIds().indexOf(parentId) !== -1) {
+      return;
+    }
     this.SET_PARENT(parentId);
+    this.placeAfter(parentId);
   }
 
   detachParent() {
-    if (this.parentId) this.SET_PARENT(null);
+    if (this.parentId) this.SET_PARENT('');
   }
 
   getParent(): SceneItemFolder {
@@ -40,11 +63,13 @@ export abstract class SceneItemNode implements ISceneItemNode {
   }
 
   hasParent(): boolean {
-    return !!this.getState().parentId;
+    return !!this.state.parentId;
   }
 
   getNodeIndex(): number {
-    return this.getScene().getNodesIds().indexOf(this.id);
+    return this.getScene()
+      .getNodesIds()
+      .indexOf(this.id);
   }
 
   placeAfter(nodeId: string) {
@@ -55,14 +80,32 @@ export abstract class SceneItemNode implements ISceneItemNode {
     this.getScene().placeBefore(this.id, nodeId);
   }
 
-  getPrevNode() {
+  getPrevNode(): TSceneNode {
     const nodeInd = this.getNodeIndex();
     return this.getScene().getNodes()[nodeInd - 1];
   }
 
-  getNextNode() {
+  getNextNode(): TSceneNode {
     const nodeInd = this.getNodeIndex();
     return this.getScene().getNodes()[nodeInd + 1];
+  }
+
+  getPrevSiblingNode(): TSceneNode {
+    const siblingsIds = this.parentId
+      ? this.getParent().getNestedNodesIds()
+      : this.getScene().getRootNodesIds();
+
+    const childInd = siblingsIds.indexOf(this.id);
+    if (childInd !== 0) return this.getScene().getNode(siblingsIds[childInd - 1]);
+  }
+
+  getNextSiblingNode(): TSceneNode {
+    const siblingsIds = this.parentId
+      ? this.getParent().getNestedNodesIds()
+      : this.getScene().getRootNodesIds();
+
+    const childInd = siblingsIds.indexOf(this.id);
+    if (childInd !== 0) return this.getScene().getNode(siblingsIds[childInd + 1]);
   }
 
   getPrevItem(): SceneItem {
@@ -83,6 +126,14 @@ export abstract class SceneItemNode implements ISceneItemNode {
     }
   }
 
+  /**
+   * @returns all parent Ids
+   */
+  getPath(): string[] {
+    const parent = this.getParent();
+    return parent ? parent.getPath().concat([this.id]) : [this.id];
+  }
+
   isSelected() {
     return this.selectionService.isSelected(this.id);
   }
@@ -100,33 +151,22 @@ export abstract class SceneItemNode implements ISceneItemNode {
   }
 
   isFolder(): this is SceneItemFolder {
-    return this.sceneNodeType === 'folder';
+    return isFolder(this);
   }
 
   isItem(): this is SceneItem {
-    return this.sceneNodeType === 'item';
+    return isItem(this);
   }
 
   getResourceId() {
     return this._resourceId;
   }
 
-  protected abstract getState(): ISceneItemNode;
-  protected abstract remove(): void;
-
+  protected abstract get state(): ISceneItemNode;
+  abstract remove(): void;
 
   @mutation()
   protected SET_PARENT(parentId?: string) {
-    const state = this.getState();
-    const currentParent = this.getScene().getFolder(state.parentId);
-    if (currentParent) {
-      const childInd = currentParent.childrenIds.indexOf(this.id);
-      currentParent.childrenIds.splice(childInd, 1);
-    }
-    state.parentId = parentId;
-    if (!parentId) return;
-    const newParent = this.getScene().getFolder(parentId);
-    newParent.childrenIds.unshift(this.id);
+    this.state.parentId = parentId;
   }
-
 }

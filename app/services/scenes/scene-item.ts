@@ -1,13 +1,17 @@
-import { merge } from 'lodash';
-import { mutation, ServiceHelper } from '../stateful-service';
+import merge from 'lodash/merge';
+import { mutation, ServiceHelper, Inject } from 'services';
 import Utils from '../utils';
 import { SourcesService, TSourceType, ISource } from 'services/sources';
 import { VideoService } from 'services/video';
-import { ScalableRectangle } from 'util/ScalableRectangle';
-import { Inject } from 'util/injector';
-import { TFormData } from '../../components/shared/forms/Input';
-import * as obs from '../obs-api';
-import { Selection, SelectionService } from 'services/selection';
+import {
+  ScalableRectangle,
+  CenteringAxis,
+  AnchorPositions,
+  AnchorPoint,
+} from 'util/ScalableRectangle';
+import { TObsFormData } from 'components/obs/inputs/ObsInput';
+import * as obs from '../../../obs-api';
+
 import {
   IPartialSettings,
   IPartialTransform,
@@ -16,19 +20,19 @@ import {
   ScenesService,
   Scene,
   ISceneItem,
-  ISceneItemApi,
   ISceneItemInfo,
-  TSceneNodeType
 } from './index';
 import { SceneItemNode } from './scene-node';
+import { v2, Vec2 } from '../../util/vec2';
+import { Rect } from '../../util/rect';
+import { TSceneNodeType } from './scenes';
 /**
  * A SceneItem is a source that contains
  * all of the information about that source, and
  * how it fits in to the given scene
  */
 @ServiceHelper()
-export class SceneItem extends SceneItemNode implements ISceneItemApi {
-
+export class SceneItem extends SceneItemNode {
   sourceId: string;
   name: string;
   type: TSourceType;
@@ -37,7 +41,7 @@ export class SceneItem extends SceneItemNode implements ISceneItemApi {
   muted: boolean;
   width: number;
   height: number;
-  properties: TFormData;
+  properties: TObsFormData;
   channel?: number;
 
   sceneItemId: string;
@@ -46,6 +50,8 @@ export class SceneItem extends SceneItemNode implements ISceneItemApi {
   transform: ITransform;
   visible: boolean;
   locked: boolean;
+
+  sceneNodeType: TSceneNodeType = 'item';
 
   // Some computed attributes
 
@@ -59,10 +65,10 @@ export class SceneItem extends SceneItemNode implements ISceneItemApi {
 
   // A visual source is visible in the editor and not locked
   get isVisualSource() {
-    return (this.video && (this.width > 0) && (this.height > 0)) && !this.locked;
+    return this.video && this.width > 0 && this.height > 0 && !this.locked;
   }
 
-  sceneItemState: ISceneItem;
+  state: ISceneItem;
 
   @Inject() protected scenesService: ScenesService;
   @Inject() private sourcesService: SourcesService;
@@ -74,13 +80,13 @@ export class SceneItem extends SceneItemNode implements ISceneItemApi {
       return item.id === sceneItemId;
     }) as ISceneItem;
     const sourceState = this.sourcesService.state.sources[sourceId];
-    this.sceneItemState = sceneItemState;
+    this.state = sceneItemState;
     Utils.applyProxy(this, sourceState);
-    Utils.applyProxy(this, this.sceneItemState);
+    Utils.applyProxy(this, this.state);
   }
 
   getModel(): ISceneItem & ISource {
-    return { ...this.source.sourceState, ...this.sceneItemState };
+    return { ...this.source.state, ...this.state };
   }
 
   getScene(): Scene {
@@ -100,7 +106,9 @@ export class SceneItem extends SceneItemNode implements ISceneItemApi {
   }
 
   getObsSceneItem(): obs.ISceneItem {
-    return this.getScene().getObsScene().findItem(this.obsSceneItemId);
+    return this.getScene()
+      .getObsScene()
+      .findItem(this.obsSceneItemId);
   }
 
   getSettings(): ISceneItemSettings {
@@ -112,17 +120,13 @@ export class SceneItem extends SceneItemNode implements ISceneItemApi {
   }
 
   setSettings(patch: IPartialSettings) {
-
     // update only changed settings to reduce the amount of IPC calls
     const obsSceneItem = this.getObsSceneItem();
-    const changed = Utils.getChangedParams(this.sceneItemState, patch);
-    const newSettings = merge({}, this.sceneItemState, patch);
+    const changed = Utils.getChangedParams(this.state, patch);
+    const newSettings = merge({}, this.state, patch);
 
     if (changed.transform) {
-      const changedTransform = Utils.getChangedParams(
-        this.sceneItemState.transform,
-        patch.transform
-      );
+      const changedTransform = Utils.getChangedParams(this.state.transform, patch.transform);
 
       if (changedTransform.position) {
         obsSceneItem.position = newSettings.transform.position;
@@ -132,14 +136,13 @@ export class SceneItem extends SceneItemNode implements ISceneItemApi {
         obsSceneItem.scale = newSettings.transform.scale;
       }
 
-
       if (changedTransform.crop) {
         const crop = newSettings.transform.crop;
         const cropModel: ICrop = {
           top: Math.round(crop.top),
           right: Math.round(crop.right),
           bottom: Math.round(crop.bottom),
-          left: Math.round(crop.left)
+          left: Math.round(crop.left),
         };
         changed.transform.crop = cropModel;
         obsSceneItem.crop = cropModel;
@@ -153,12 +156,10 @@ export class SceneItem extends SceneItemNode implements ISceneItemApi {
         this.getObsSceneItem().rotation = effectiveRotation;
         changed.transform.rotation = effectiveRotation;
       }
-
     }
 
-
     if (changed.locked !== void 0) {
-      if (changed.locked && (this.selectionService.isSelected(this.sceneItemId))) {
+      if (changed.locked && this.selectionService.isSelected(this.sceneItemId)) {
         this.selectionService.deselect(this.sceneItemId);
       }
     }
@@ -168,7 +169,8 @@ export class SceneItem extends SceneItemNode implements ISceneItemApi {
     }
 
     this.UPDATE({ sceneItemId: this.sceneItemId, ...changed });
-    this.scenesService.itemUpdated.next(this.sceneItemState);
+
+    this.scenesService.itemUpdated.next(this.getModel());
   }
 
   remove() {
@@ -176,47 +178,31 @@ export class SceneItem extends SceneItemNode implements ISceneItemApi {
   }
 
   nudgeLeft() {
-    this.setTransform({ position: { x: this.transform.position.x - 1 } });
+    this.setDeltaPos('x', -1);
   }
-
 
   nudgeRight() {
-    this.setTransform({ position: { x: this.transform.position.x + 1 } });
+    this.setDeltaPos('x', 1);
   }
-
 
   nudgeUp() {
-    this.setTransform({ position: { y: this.transform.position.y - 1 } });
+    this.setDeltaPos('y', -1);
   }
-
 
   nudgeDown() {
-    this.setTransform({ position: { y: this.transform.position.y + 1 } });
+    this.setDeltaPos('y', 1);
   }
 
+  setDeltaPos(dir: 'x' | 'y', delta: number) {
+    this.setTransform({ position: { [dir]: this.transform.position[dir] + delta } });
+  }
 
   setVisibility(visible: boolean) {
     this.setSettings({ visible });
   }
 
-
   setLocked(locked: boolean) {
     this.setSettings({ locked });
-  }
-
-
-  loadAttributes() {
-    const { position, scale, visible, crop, rotation } = this.getObsSceneItem();
-    this.UPDATE({
-      sceneItemId: this.sceneItemId,
-      transform: {
-        position,
-        scale,
-        crop,
-        rotation
-      },
-      visible
-    });
   }
 
   loadItemAttributes(customSceneItem: ISceneItemInfo) {
@@ -225,14 +211,14 @@ export class SceneItem extends SceneItemNode implements ISceneItemApi {
     const crop = customSceneItem.crop;
 
     this.UPDATE({
+      visible,
       sceneItemId: this.sceneItemId,
       transform: {
+        position,
+        crop,
         scale: { x: customSceneItem.scaleX, y: customSceneItem.scaleY },
         rotation: customSceneItem.rotation,
-        position,
-        crop
       },
-      visible,
       locked: !!customSceneItem.locked,
     });
   }
@@ -250,9 +236,55 @@ export class SceneItem extends SceneItemNode implements ISceneItemApi {
         top: 0,
         left: 0,
         right: 0,
-        bottom: 0
-      }
+        bottom: 0,
+      },
     });
+  }
+
+  /**
+   * set scale and adjust the item position according to the origin parameter
+   */
+  setScale(newScaleModel: IVec2, origin: IVec2 = AnchorPositions[AnchorPoint.Center]) {
+    const rect = new ScalableRectangle(this.getRectangle());
+    rect.normalized(() => {
+      rect.withOrigin(origin, () => {
+        rect.scaleX = newScaleModel.x;
+        rect.scaleY = newScaleModel.y;
+      });
+    });
+
+    this.setTransform({
+      position: {
+        x: rect.x,
+        y: rect.y,
+      },
+      scale: {
+        x: rect.scaleX,
+        y: rect.scaleY,
+      },
+    });
+  }
+
+  /**
+   * set a new scale relative to the current scale
+   */
+  scale(scaleDelta: IVec2, origin: IVec2 = AnchorPositions[AnchorPoint.Center]) {
+    const rect = this.getRectangle();
+    let currentScale: Vec2;
+    rect.normalized(() => {
+      currentScale = v2(rect.scaleX, rect.scaleY);
+    });
+    const newScale = v2(scaleDelta).multiply(currentScale);
+    this.setScale(newScale, origin);
+  }
+
+  /**
+   * set a new scale relative to the current scale
+   * Use offset coordinates as an origin
+   */
+  scaleWithOffset(scaleDelta: IVec2, offset: IVec2) {
+    const origin = this.getBoundingRect().getOriginFromOffset(offset);
+    this.scale(scaleDelta, origin);
   }
 
   flipY() {
@@ -271,13 +303,11 @@ export class SceneItem extends SceneItemNode implements ISceneItemApi {
     });
   }
 
-
   stretchToScreen() {
     const rect = this.getRectangle();
     rect.stretchAcross(this.videoService.getScreenRectangle());
     this.setRect(rect);
   }
-
 
   fitToScreen() {
     const rect = this.getRectangle();
@@ -288,6 +318,12 @@ export class SceneItem extends SceneItemNode implements ISceneItemApi {
   centerOnScreen() {
     const rect = this.getRectangle();
     rect.centerOn(this.videoService.getScreenRectangle());
+    this.setRect(rect);
+  }
+
+  centerOnAxis(axis: CenteringAxis) {
+    const rect = this.getRectangle();
+    rect.centerOn(this.videoService.getScreenRectangle(), axis);
     this.setRect(rect);
   }
 
@@ -303,10 +339,6 @@ export class SceneItem extends SceneItemNode implements ISceneItemApi {
       .findIndex(sceneItemModel => sceneItemModel.id === this.id);
   }
 
-  protected getState() {
-    return this.sceneItemState;
-  }
-
   /**
    * only for scene sources
    */
@@ -314,29 +346,35 @@ export class SceneItem extends SceneItemNode implements ISceneItemApi {
     const source = this.getSource();
     if (source.type !== 'scene') return;
     const scene = this.scenesService.getScene(source.sourceId);
-    const rect = scene.getSelection().selectAll().getBoundingRect();
+    const rect = scene
+      .getSelection()
+      .selectAll()
+      .getBoundingRect();
     const { width, height } = this.source.getObsInput();
     this.setTransform({
       position: {
         x: rect.x,
-        y: rect.y
+        y: rect.y,
       },
       crop: {
         top: rect.y,
         right: width - (rect.x + rect.width),
         bottom: height - (rect.y + rect.height),
-        left: rect.x
-      }
+        left: rect.x,
+      },
     });
   }
 
   private setRect(rect: IScalableRectangle) {
     this.setTransform({
       position: { x: rect.x, y: rect.y },
-      scale: { x: rect.scaleX, y: rect.scaleY }
+      scale: { x: rect.scaleX, y: rect.scaleY },
     });
   }
 
+  getSelection() {
+    return this.getScene().getSelection(this.id);
+  }
 
   /**
    * A rectangle representing this sceneItem
@@ -350,7 +388,21 @@ export class SceneItem extends SceneItemNode implements ISceneItemApi {
       width: this.width,
       height: this.height,
       crop: this.transform.crop,
-      rotation: this.transform.rotation
+      rotation: this.transform.rotation,
+    });
+  }
+
+  /**
+   * returns a simple bounding rectangle
+   */
+  getBoundingRect(): Rect {
+    const rect = this.getRectangle();
+    rect.normalize();
+    return new Rect({
+      x: rect.x,
+      y: rect.y,
+      width: rect.scaledWidth,
+      height: rect.scaledHeight,
     });
   }
 
@@ -377,9 +429,8 @@ export class SceneItem extends SceneItemNode implements ISceneItemApi {
     this.setTransform({ position: { x: newRect.x, y: newRect.y } });
   }
 
-
   @mutation()
-  private UPDATE(patch: {sceneItemId: string} & IPartialSettings) {
-    merge(this.sceneItemState, patch);
+  private UPDATE(patch: { sceneItemId: string } & IPartialSettings) {
+    merge(this.state, patch);
   }
 }

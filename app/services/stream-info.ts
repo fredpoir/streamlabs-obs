@@ -1,12 +1,13 @@
-import { StatefulService, mutation } from './stateful-service';
-import { IChannelInfo, getPlatformService } from './platforms';
+import { StatefulService, mutation } from 'services/core/stateful-service';
+import { IChannelInfo, getPlatformService, Tag } from 'services/platforms';
 import { UserService } from './user';
-import { Inject } from '../util/injector';
-import { StreamingService } from '../services/streaming';
-import { TwitchService } from 'services/platforms/twitch';
-import { YoutubeService } from 'services/platforms/youtube';
-import { MixerService } from 'services/platforms/mixer';
-
+import { Inject } from 'services/core/injector';
+import { StreamingService } from './streaming';
+import { HostsService } from 'services/hosts';
+import { authorizedHeaders } from 'util/requests';
+import { Subject } from 'rxjs';
+import { TwitchService } from './platforms/twitch';
+import { FacebookService } from './platforms/facebook';
 
 interface IStreamInfoServiceState {
   fetching: boolean;
@@ -15,9 +16,12 @@ interface IStreamInfoServiceState {
   channelInfo: IChannelInfo;
 }
 
+interface IStreamInfo {
+  viewerCount: number;
+  channelInfo: IChannelInfo;
+}
 
 const VIEWER_COUNT_UPDATE_INTERVAL = 60 * 1000;
-
 
 /**
  * The stream info service is responsible for keeping
@@ -26,77 +30,104 @@ const VIEWER_COUNT_UPDATE_INTERVAL = 60 * 1000;
  * components to make use of.
  */
 export class StreamInfoService extends StatefulService<IStreamInfoServiceState> {
-
   @Inject() userService: UserService;
   @Inject() streamingService: StreamingService;
+  @Inject() hostsService: HostsService;
+  @Inject() twitchService: TwitchService;
+  @Inject() facebookService: FacebookService;
 
-  static initialState: IStreamInfoServiceState = {
-    fetching: false,
-    error: false,
-    viewerCount: 0,
-    channelInfo: null
-  };
-
+  static initialState: IStreamInfoServiceState = null;
 
   viewerCountInterval: number;
 
+  streamInfoChanged = new Subject();
 
   init() {
-    this.refreshStreamInfo();
+    this.RESET();
+    this.refreshStreamInfo().catch(e => null);
+    this.userService.userLogout.subscribe(_ => this.RESET());
 
     this.viewerCountInterval = window.setInterval(() => {
+      if (!this.userService.isLoggedIn()) return;
+
       if (this.streamingService.isStreaming) {
         const platform = getPlatformService(this.userService.platform.type);
 
         platform.fetchViewerCount().then(viewers => {
           this.SET_VIEWER_COUNT(viewers);
+          this.streamInfoChanged.next();
         });
       }
     }, VIEWER_COUNT_UPDATE_INTERVAL);
   }
 
-
-  refreshStreamInfo(): Promise<void> {
-    if (!this.userService.isLoggedIn()) return Promise.reject(null);
-
+  async refreshStreamInfo(): Promise<void> {
     this.SET_ERROR(false);
     this.SET_FETCHING(true);
 
+    if (!this.userService.isLoggedIn()) {
+      this.SET_FETCHING(false);
+      return;
+    }
+
     const platform = getPlatformService(this.userService.platform.type);
-    return platform.fetchChannelInfo().then(info => {
-      this.SET_CHANNEL_INFO(info);
-      this.SET_FETCHING(false);
-    }).catch(() => {
-      this.SET_FETCHING(false);
+    try {
+      await platform.prepopulateInfo();
+      const info = await platform.fetchChannelInfo();
+
+      if (info) this.SET_CHANNEL_INFO(info);
+
+      if (this.userService.platform.type === 'twitch') {
+        this.SET_HAS_UPDATE_TAGS_PERM(await this.twitchService.hasScope('user:edit:broadcast'));
+      }
+
+      if (this.userService.platform.type === 'facebook') {
+        this.SET_FACEBOOK_PAGE(this.facebookService.state.facebookPages.page_id);
+      }
+
+      this.streamInfoChanged.next();
+    } catch (e) {
+      console.error('Unable to refresh stream info', e);
       this.SET_ERROR(true);
-    });
+    }
+    this.SET_FETCHING(false);
   }
 
-
-  setStreamInfo(title: string, description: string, game: string): Promise<boolean> {
+  async setChannelInfo(info: IChannelInfo): Promise<boolean> {
     const platform = getPlatformService(this.userService.platform.type);
-
-    if (platform instanceof TwitchService || MixerService) {
-      return platform.putChannelInfo(title, game).then(success => {
-        this.refreshStreamInfo();
-        return success;
-      }).catch(() => {
-        this.refreshStreamInfo();
-        return false;
-      });
+    if (this.userService.platform.type === 'facebook' && info.game === '') {
+      return Promise.reject('You must select a game.');
     }
 
-    if (platform instanceof YoutubeService) {
-      return platform.putChannelInfo(title, description).then(success => {
-        this.refreshStreamInfo();
-        return success;
-      }).catch(() => {
-        this.refreshStreamInfo();
-        return false;
-      });
+    try {
+      await platform.putChannelInfo(info);
+      this.createGameAssociation(info.game);
+      await this.refreshStreamInfo();
+      return true;
+    } catch (e) {
+      console.error('Unable to set stream info: ', e);
     }
+    return false;
   }
 
+  /**
+   * Used to track in aggregate which overlays streamers are using
+   * most often for which games, in order to offer a better search
+   * experience in the overlay library.
+   * @param game the name of the game
+   */
+  private createGameAssociation(game: string) {
+    const url = `https://${this.hostsService.overlays}/api/overlay-games-association`;
+
+    const headers = authorizedHeaders(this.userService.apiToken);
+    headers.append('Content-Type', 'application/x-www-form-urlencoded');
+
+    const body = `game=${encodeURIComponent(game)}`;
+    const request = new Request(url, { headers, body, method: 'POST' });
+
+    // This is best effort data gathering, don't explicitly handle errors
+    return fetch(request);
+  }
 
   @mutation()
   SET_FETCHING(fetching: boolean) {
@@ -114,8 +145,35 @@ export class StreamInfoService extends StatefulService<IStreamInfoServiceState> 
   }
 
   @mutation()
+  SET_HAS_UPDATE_TAGS_PERM(perm: boolean) {
+    this.state.channelInfo.hasUpdateTagsPermission = perm;
+  }
+
+  @mutation()
   SET_VIEWER_COUNT(viewers: number) {
     this.state.viewerCount = viewers;
   }
 
+  @mutation()
+  SET_FACEBOOK_PAGE(pageId: string) {
+    this.state.channelInfo.facebookPageId = pageId;
+  }
+
+  @mutation()
+  RESET() {
+    this.state = {
+      fetching: false,
+      error: false,
+      viewerCount: 0,
+      channelInfo: {
+        title: '',
+        game: '',
+        description: '',
+        tags: [],
+        availableTags: [],
+        hasUpdateTagsPermission: false,
+        facebookPageId: '',
+      },
+    };
+  }
 }

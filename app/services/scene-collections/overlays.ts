@@ -1,4 +1,4 @@
-import { Service } from '../service';
+import { Service, Inject } from 'services';
 import { RootNode } from './nodes/overlays/root';
 import { ScenesNode } from './nodes/overlays/scenes';
 import { SlotsNode } from './nodes/overlays/slots';
@@ -6,19 +6,21 @@ import { ImageNode } from './nodes/overlays/image';
 import { TextNode } from './nodes/overlays/text';
 import { WebcamNode } from './nodes/overlays/webcam';
 import { VideoNode } from './nodes/overlays/video';
+import { TransitionNode } from './nodes/overlays/transition';
 import { parse } from './parse';
 import { StreamlabelNode } from './nodes/overlays/streamlabel';
 import { WidgetNode } from './nodes/overlays/widget';
-import { Inject } from '../../util/injector';
-import electron from 'electron';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import unzip from 'unzip-stream';
+import extractZip from 'extract-zip';
 import archiver from 'archiver';
 import https from 'https';
 import { ScenesService } from 'services/scenes';
 import { SelectionService } from 'services/selection';
+import uuid from 'uuid/v4';
+import { SceneSourceNode } from './nodes/overlays/scene';
+import { AppService } from 'services/app';
 
 const NODE_TYPES = {
   RootNode,
@@ -29,7 +31,9 @@ const NODE_TYPES = {
   WebcamNode,
   VideoNode,
   StreamlabelNode,
-  WidgetNode
+  WidgetNode,
+  TransitionNode,
+  SceneSourceNode,
 };
 
 export interface IDownloadProgress {
@@ -41,17 +45,13 @@ export interface IDownloadProgress {
 export class OverlaysPersistenceService extends Service {
   @Inject() private scenesService: ScenesService;
   @Inject() private selectionService: SelectionService;
+  @Inject() private appService: AppService;
 
   /**
    * Downloads the requested overlay into a temporary directory
    */
-  async downloadOverlay(
-    url: string,
-    progressCallback?: (progress: IDownloadProgress) => void
-  ) {
-    const overlayFilename = `${electron.ipcRenderer.sendSync(
-      'getUniqueId'
-    )}.overlay`;
+  async downloadOverlay(url: string, progressCallback?: (progress: IDownloadProgress) => void) {
+    const overlayFilename = `${uuid()}.overlay`;
     const overlayPath = path.join(os.tmpdir(), overlayFilename);
     const fileStream = fs.createWriteStream(overlayPath);
 
@@ -64,12 +64,13 @@ export class OverlaysPersistenceService extends Service {
           fileStream.write(chunk);
           downloaded += chunk.length;
 
-          if (progressCallback)
+          if (progressCallback) {
             progressCallback({
               totalBytes: totalSize,
               downloadedBytes: downloaded,
-              percent: downloaded / totalSize
+              percent: downloaded / totalSize,
             });
+          }
         });
 
         response.on('end', () => resolve());
@@ -87,11 +88,13 @@ export class OverlaysPersistenceService extends Service {
     this.ensureOverlaysDirectory();
 
     await new Promise((resolve, reject) => {
-      const inStream = fs.createReadStream(overlayFilePath);
-      const outStream = unzip.Extract({ path: assetsPath });
-
-      outStream.on('close', resolve);
-      inStream.pipe(outStream);
+      extractZip(overlayFilePath, { dir: assetsPath }, err => {
+        if (err) {
+          reject(err);
+        } else {
+          resolve();
+        }
+      });
     });
 
     const configPath = path.join(assetsPath, 'config.json');
@@ -133,6 +136,6 @@ export class OverlaysPersistenceService extends Service {
   }
 
   get overlaysDirectory() {
-    return path.join(electron.remote.app.getPath('userData'), 'Overlays');
+    return path.join(this.appService.appDataDirectory, 'Overlays');
   }
 }

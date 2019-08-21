@@ -1,17 +1,20 @@
 import electron from 'electron';
-import { Service } from 'services/service';
+import { StatefulService } from 'services/core/stateful-service';
 import fs from 'fs';
 import path from 'path';
 import { ScenesService } from 'services/scenes';
 import { SourcesService } from 'services/sources';
 import { TSourceType } from 'services/sources/sources-api';
 import { SourceFiltersService, TSourceFilterType } from 'services/source-filters';
-import { ScenesTransitionsService } from 'services/scenes-transitions';
+import { TransitionsService, ETransitionType } from 'services/transitions';
 import { AudioService } from 'services/audio';
-import { Inject } from 'util/injector';
+import { Inject } from 'services/core/injector';
 import { SceneCollectionsService } from 'services/scene-collections';
-import { nodeObs } from 'services/obs-api';
+import * as obs from '../../obs-api';
 import { SettingsService } from 'services/settings';
+import { AppService } from 'services/app';
+import { RunInLoadingMode } from 'services/app/app-decorators';
+import defaultTo from 'lodash/defaultTo';
 
 interface Source {
   name?: string;
@@ -51,7 +54,11 @@ interface IOBSConfigSource {
   channel?: number;
   muted: boolean;
   volume: number;
-  filters:IOBSConfigFilter[];
+  filters: IOBSConfigFilter[];
+  mixers: number;
+  monitoring_type: number;
+  sync: number;
+  flags: number;
 }
 
 interface IOBSConfigTransition {
@@ -66,18 +73,23 @@ interface IOBSConfigJSON {
   transition_duration: number;
 }
 
-export class ObsImporterService extends Service {
+export class ObsImporterService extends StatefulService<{ progress: number; total: number }> {
   @Inject() scenesService: ScenesService;
   @Inject() sourcesService: SourcesService;
   @Inject('SourceFiltersService') filtersService: SourceFiltersService;
-  @Inject('ScenesTransitionsService') transitionsService: ScenesTransitionsService;
+  @Inject() transitionsService: TransitionsService;
   @Inject() sceneCollectionsService: SceneCollectionsService;
   @Inject() audioService: AudioService;
   @Inject() settingsService: SettingsService;
+  @Inject() appService: AppService;
 
-  async load(selectedprofile: string) {
+  @RunInLoadingMode()
+  async import() {
+    await this.load();
+  }
+
+  async load(selectedProfile?: string) {
     if (!this.isOBSinstalled()) return;
-
     // Scene collections
     const collections = this.getSceneCollections();
     for (const collection of collections) {
@@ -85,7 +97,7 @@ export class ObsImporterService extends Service {
     }
 
     // Profile
-    this.importProfile(selectedprofile);
+    if (selectedProfile) this.importProfile(selectedProfile);
 
     // Select current scene collection
     const globalConfigFile = path.join(this.OBSconfigFileDirectory, 'global.ini');
@@ -100,21 +112,16 @@ export class ObsImporterService extends Service {
       }
     }
 
-    nodeObs.OBS_service_resetVideoContext();
-    nodeObs.OBS_service_resetAudioContext();
+    obs.NodeObs.OBS_service_resetVideoContext();
+    obs.NodeObs.OBS_service_resetAudioContext();
 
     // Ensure we reload any updated settings
     this.settingsService.loadSettingsIntoStore();
   }
 
   private async importCollection(collection: ISceneCollection) {
-    const sceneCollectionPath = path.join(
-      this.sceneCollectionsDirectory,
-      collection.filename
-    );
-    const configJSON: IOBSConfigJSON = JSON.parse(
-      fs.readFileSync(sceneCollectionPath).toString()
-    );
+    const sceneCollectionPath = path.join(this.sceneCollectionsDirectory, collection.filename);
+    const configJSON: IOBSConfigJSON = JSON.parse(fs.readFileSync(sceneCollectionPath).toString());
 
     await this.sceneCollectionsService.create({
       name: collection.name,
@@ -125,39 +132,26 @@ export class ObsImporterService extends Service {
         this.importMixerSources(configJSON);
         this.importTransitions(configJSON);
 
-        if (this.scenesService.scenes.length === 0) {
-          return false;
-        }
-
-        return true;
-      }
+        return this.scenesService.scenes.length !== 0;
+      },
     });
   }
 
   importFilters(filtersJSON: IOBSConfigFilter[], source: Source) {
     if (Array.isArray(filtersJSON)) {
       filtersJSON.forEach(filterJSON => {
-        const isFilterAvailable = this.filtersService
-          .getTypes()
-          .find(availableFilter => {
-            return availableFilter.type === filterJSON.id;
-          });
+        const isFilterAvailable = this.filtersService.getTypes().find(availableFilter => {
+          return availableFilter.type === filterJSON.id;
+        });
 
         if (isFilterAvailable) {
           const sourceId = this.sourcesService.getSourcesByName(source.name)[0].sourceId;
 
-          const filter = this.filtersService.add(
-            sourceId,
-            filterJSON.id,
-            filterJSON.name
-          );
+          const filter = this.filtersService.add(sourceId, filterJSON.id, filterJSON.name);
           filter.enabled = filterJSON.enabled;
 
           // Setting properties
-          const properties = this.filtersService.getPropertiesFormData(
-            sourceId,
-            filterJSON.name
-          );
+          const properties = this.filtersService.getPropertiesFormData(sourceId, filterJSON.name);
 
           if (properties) {
             if (Array.isArray(properties)) {
@@ -169,11 +163,7 @@ export class ObsImporterService extends Service {
             }
           }
 
-          this.filtersService.setPropertiesFormData(
-            sourceId,
-            filterJSON.name,
-            properties
-          );
+          this.filtersService.setPropertiesFormData(sourceId, filterJSON.name, properties);
         } else {
           // TODO Report to the user that slobs does not support the filter
         }
@@ -202,17 +192,24 @@ export class ObsImporterService extends Service {
               sourceJSON.id,
               sourceJSON.settings,
               {
-                channel: sourceJSON.channel !== 0 ? sourceJSON.channel : void 0
-              }
+                channel: sourceJSON.channel !== 0 ? sourceJSON.channel : void 0,
+              },
             );
 
             if (source.audio) {
-              this.audioService
-                .getSource(source.sourceId)
-                .setMuted(sourceJSON.muted);
-              this.audioService
-                .getSource(source.sourceId)
-                .setMul(sourceJSON.volume);
+              const defaultMonitoring =
+                source.type === 'browser_source'
+                  ? obs.EMonitoringType.MonitoringOnly
+                  : obs.EMonitoringType.None;
+
+              this.audioService.getSource(source.sourceId).setMuted(sourceJSON.muted);
+              this.audioService.getSource(source.sourceId).setMul(sourceJSON.volume);
+              this.audioService.getSource(source.sourceId).setSettings({
+                audioMixers: defaultTo(sourceJSON.mixers, 255),
+                monitoringType: defaultTo(sourceJSON.monitoring_type, defaultMonitoring),
+                syncOffset: defaultTo(sourceJSON.sync / 1000000, 0),
+                forceMono: !!(sourceJSON.flags & obs.ESourceFlags.ForceMono),
+              });
             }
 
             // Adding the filters
@@ -230,31 +227,34 @@ export class ObsImporterService extends Service {
     const sourcesJSON = configJSON.sources;
     const currentScene = configJSON.current_scene;
 
+    // OBS uses unique scene names instead id
+    // so create a mapping variable
+    const nameToIdMap: Dictionary<string> = {};
+
     if (Array.isArray(sourcesJSON)) {
       // Create all the scenes
       sourcesJSON.forEach(sourceJSON => {
         if (sourceJSON.id === 'scene') {
           const scene = this.scenesService.createScene(sourceJSON.name, {
-            makeActive: sourceJSON.name === currentScene
+            makeActive: sourceJSON.name === currentScene,
           });
+          nameToIdMap[scene.name] = scene.id;
         }
       });
 
       // Add all the sceneItems to every scene
       sourcesJSON.forEach(sourceJSON => {
         if (sourceJSON.id === 'scene') {
-          const scene = this.scenesService.getSceneByName(sourceJSON.name);
+          const scene = this.scenesService.getScene(nameToIdMap[sourceJSON.name]);
           if (!scene) return;
 
           const sceneItems = sourceJSON.settings.items;
           if (Array.isArray(sceneItems)) {
             // Looking for the source to add to the scene
             sceneItems.forEach(item => {
-              const sourceToAdd = this.sourcesService
-                .getSources()
-                .find(source => {
-                  return source.name === item.name;
-                });
+              const sourceToAdd = this.sourcesService.getSources().find(source => {
+                return source.name === item.name;
+              });
               if (sourceToAdd) {
                 const sceneItem = scene.addSource(sourceToAdd.sourceId);
 
@@ -262,7 +262,7 @@ export class ObsImporterService extends Service {
                   bottom: item.crop_bottom,
                   left: item.crop_left,
                   right: item.crop_right,
-                  top: item.crop_top
+                  top: item.crop_top,
                 };
                 const pos = item.pos;
                 const scale = item.scale;
@@ -272,8 +272,8 @@ export class ObsImporterService extends Service {
                   transform: {
                     crop,
                     scale,
-                    position: pos
-                  }
+                    position: pos,
+                  },
                 });
               }
             });
@@ -293,7 +293,7 @@ export class ObsImporterService extends Service {
         sceneNames.push(
           listScene.find(scene => {
             return scene.name === obsScene.name;
-          }).id
+          }).id,
         );
       });
     }
@@ -306,34 +306,41 @@ export class ObsImporterService extends Service {
       'DesktopAudioDevice2',
       'AuxAudioDevice1',
       'AuxAudioDevice2',
-      'AuxAudioDevice3'
+      'AuxAudioDevice3',
     ];
     channelNames.forEach((channelName, i) => {
       const audioSource = configJSON[channelName];
       if (audioSource) {
         const newSource = this.sourcesService.createSource(
-          channelName,
+          audioSource.name,
           audioSource.id,
           {},
-          { channel: i + 1 }
+          { channel: i + 1 },
         );
 
-        this.audioService
-          .getSource(newSource.sourceId)
-          .setMuted(audioSource.muted);
-        this.audioService
-          .getSource(newSource.sourceId)
-          .setMul(audioSource.volume);
+        this.audioService.getSource(newSource.sourceId).setMuted(audioSource.muted);
+        this.audioService.getSource(newSource.sourceId).setMul(audioSource.volume);
+        this.audioService.getSource(newSource.sourceId).setSettings({
+          ['audioMixers']: audioSource.mixers,
+          ['monitoringType']: audioSource.monitoring_type,
+          ['syncOffset']: audioSource.sync / 1000000,
+          ['forceMono']: !!(audioSource.flags & obs.ESourceFlags.ForceMono),
+        });
       }
     });
   }
 
+  // TODO: Fix this function
   importTransitions(configJSON: IOBSConfigJSON) {
-    // Only import the first transition found in obs as slobs only
-    // uses one global transition
+    // Only import a single transition from OBS for now.
+    // Eventually we should import all transitions
     if (configJSON.transitions && configJSON.transitions.length > 0) {
-      this.transitionsService.setType(configJSON.transitions[0].id);
-      this.transitionsService.setDuration(configJSON.transition_duration);
+      this.transitionsService.deleteAllTransitions();
+      this.transitionsService.createTransition(
+        configJSON.transitions[0].id as ETransitionType,
+        'Global Transition',
+        { duration: configJSON.transition_duration },
+      );
     }
   }
 
@@ -342,14 +349,10 @@ export class ObsImporterService extends Service {
     const files = fs.readdirSync(profileDirectory);
 
     files.forEach(file => {
-      if (
-        file === 'basic.ini' ||
-        file === 'streamEncoder.json' ||
-        file === 'recordEncoder.json'
-      ) {
+      if (file === 'basic.ini' || file === 'streamEncoder.json' || file === 'recordEncoder.json') {
         const obsFilePath = path.join(profileDirectory, file);
 
-        const appData = electron.remote.app.getPath('userData');
+        const appData = this.appService.appDataDirectory;
         const currentFilePath = path.join(appData, file);
 
         const readData = fs.readFileSync(obsFilePath);
@@ -368,7 +371,7 @@ export class ObsImporterService extends Service {
     return files.map(file => {
       return {
         filename: file,
-        name: file.replace('_', ' ').replace('.json', '')
+        name: file.replace('_', ' ').replace('.json', ''),
       };
     });
   }

@@ -1,17 +1,14 @@
-import test from 'ava';
-import { useSpectron } from '../helpers/spectron';
+import { useSpectron, test } from '../helpers/spectron';
 import { getClient } from '../helpers/api-client';
-import { IScenesServiceApi } from '../../app/services/scenes/scenes-api';
-import { ISourcesServiceApi } from '../../app/services/sources/sources-api';
-
+import { ScenesService } from 'services/scenes';
+import { SourcesService } from 'services/api/external-api/sources/sources';
 
 useSpectron({ restartAppAfterEachTest: false });
 
-
 test('Creating, fetching and removing sources', async t => {
   const client = await getClient();
-  const scenesService = client.getResource<IScenesServiceApi>('ScenesService');
-  const sourcesService = client.getResource<ISourcesServiceApi>('SourcesService');
+  const scenesService = client.getResource<ScenesService>('ScenesService');
+  const sourcesService = client.getResource<SourcesService>('SourcesService');
   const scene = scenesService.activeScene;
 
   const colorSource1 = sourcesService.createSource('MyColorSource1', 'color_source');
@@ -19,6 +16,7 @@ test('Creating, fetching and removing sources', async t => {
 
   const sources = sourcesService.getSources();
 
+  t.truthy(colorSource1.id); // id field is necessary for Streamdeck
   t.truthy(sources.find(source => source.name === 'MyColorSource1'));
   t.truthy(sources.find(source => source.name === 'MyColorSource2'));
 
@@ -34,37 +32,34 @@ test('Creating, fetching and removing sources', async t => {
   t.deepEqual(sceneItemNames, []);
 });
 
-
-
 test('Source events', async t => {
   const client = await getClient();
-  const scenesService = client.getResource<IScenesServiceApi>('ScenesService');
-  const sourcesService = client.getResource<ISourcesServiceApi>('SourcesService');
-  let eventData: Dictionary<any>;
+  const scenesService = client.getResource<ScenesService>('ScenesService');
+  const sourcesService = client.getResource<SourcesService>('SourcesService');
+
 
   sourcesService.sourceAdded.subscribe(() => void 0);
   sourcesService.sourceRemoved.subscribe(() => void 0);
   sourcesService.sourceUpdated.subscribe(() => void 0);
 
-
+  // check `sourceUpdated` event after `createSource` call
   const source1 = sourcesService.createSource('audio1', 'wasapi_output_capture');
-  eventData = await client.fetchNextEvent();
+  let event = await client.fetchNextEvent();
+  t.is(event.data.name, 'audio1');
+  t.truthy(event.data.id); // id field is necessary for Streamdeck
 
-  t.is(eventData.name, 'audio1');
-
+  // check `sourceUpdated` event after `createAndAddSource` call
   const item2 = scenesService.activeScene.createAndAddSource('audio2', 'wasapi_output_capture');
-  eventData = await client.fetchNextEvent();
+  event = await client.fetchNextEvent();
+  t.is(event.data.name, 'audio2');
 
-  t.is(eventData.name, 'audio2');
-
+  // check `sourceRemoved` event
   item2.remove();
-  eventData = await client.fetchNextEvent();
+  event = await client.fetchNextEvent();
+  t.is(event.data.name, 'audio2');
 
-  t.is(eventData.name, 'audio2');
-
+  // check `sourceUpdated` event when renaming a source
   source1.setName('audio3');
-  eventData = await client.fetchNextEvent();
-
-  t.is(eventData.name, 'audio3');
-
+  event = await client.fetchNextEvent();
+  t.is(event.data.name, 'audio3');
 });

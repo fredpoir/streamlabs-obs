@@ -1,6 +1,5 @@
-import { Inject } from '../../util/injector';
+import { Inject } from '../../services/core/injector';
 import { Menu } from './Menu';
-import { WindowsService } from '../../services/window';
 import { Source, SourcesService } from '../../services/sources';
 import { ScenesService } from '../../services/scenes';
 import { ClipboardService } from '../../services/clipboard';
@@ -9,13 +8,18 @@ import { GroupMenu } from './GroupMenu';
 import { SourceFiltersService } from '../../services/source-filters';
 import { WidgetsService } from 'services/widgets';
 import { CustomizationService } from 'services/customization';
-import { SelectionService } from 'services/selection/selection';
+import { SelectionService } from 'services/selection';
+import { ProjectorService } from 'services/projector';
+import { AudioService } from 'services/audio';
 import electron from 'electron';
+import { $t } from 'services/i18n';
+import { EditorCommandsService } from 'services/editor-commands';
 
 interface IEditMenuOptions {
   selectedSourceId?: string;
   showSceneItemMenu?: boolean;
   selectedSceneId?: string;
+  showAudioMixerMenu?: boolean;
 }
 
 export class EditMenu extends Menu {
@@ -26,9 +30,13 @@ export class EditMenu extends Menu {
   @Inject() private widgetsService: WidgetsService;
   @Inject() private customizationService: CustomizationService;
   @Inject() private selectionService: SelectionService;
+  @Inject() private projectorService: ProjectorService;
+  @Inject() private audioService: AudioService;
+  @Inject() private editorCommandsService: EditorCommandsService;
 
   private scene = this.scenesService.getScene(this.options.selectedSceneId);
-  private source: Source;
+
+  private readonly source: Source;
 
   constructor(private options: IEditMenuOptions) {
     super();
@@ -45,153 +53,199 @@ export class EditMenu extends Menu {
   private appendEditMenuItems() {
     if (this.scene) {
       this.append({
-        label: 'Paste (Reference)',
-        enabled: this.clipboardService.hasItems(),
+        label: $t('Paste (Reference)'),
+        enabled: this.clipboardService.hasData(),
         accelerator: 'CommandOrControl+V',
-        click: () => this.clipboardService.pasteReference()
+        click: () => this.clipboardService.paste(),
       });
 
       this.append({
-        label: 'Paste (Duplicate)',
+        label: $t('Paste (Duplicate)'),
         enabled: this.clipboardService.hasItems(),
-        click: () => this.clipboardService.pasteDuplicate()
+        click: () => this.clipboardService.paste(true),
       });
     }
 
     const isMultipleSelection = this.selectionService.getSize() > 1;
 
     if (this.options.showSceneItemMenu) {
-
       const selectedItem = this.selectionService.getLastSelected();
 
       this.append({
-        label: 'Copy',
+        label: $t('Copy'),
         accelerator: 'CommandOrControl+C',
-        click: () => this.clipboardService.copy()
+        click: () => this.clipboardService.copy(),
       });
 
-
       this.append({
-        label: 'Select All',
+        label: $t('Select All'),
         accelerator: 'CommandOrControl+A',
-        click: () => this.selectionService.selectAll()
+        click: () => this.selectionService.selectAll(),
       });
       this.append({
-        label: 'Invert Selection',
-        click: () => this.selectionService.invert()
+        label: $t('Invert Selection'),
+        click: () => this.selectionService.invert(),
       });
-
 
       this.append({ type: 'separator' });
 
       this.append({
-        label: 'Remove',
-        accelerator: 'Delete',
-        click: () => {
-          this.selectionService.remove();
-        }
+        label: $t('Transform'),
+        submenu: this.transformSubmenu().menu,
       });
 
       this.append({
-        label: 'Transform',
-        submenu: this.transformSubmenu().menu
+        label: 'Group',
+        submenu: this.groupSubmenu().menu,
       });
 
-      if (this.customizationService.state.experimental.sceneItemsGrouping) {
-        this.append({
-          label: 'Group',
-          submenu: this.groupSubmenu().menu
-        });
+      if (selectedItem) {
+        const visibilityLabel = selectedItem.visible ? $t('Hide') : $t('Show');
+
+        if (!isMultipleSelection) {
+          this.append({
+            label: visibilityLabel,
+            click: () => {
+              selectedItem.setVisibility(!selectedItem.visible);
+            },
+          });
+          this.append({
+            label: $t('Create Source Projector'),
+            click: () => {
+              this.projectorService.createProjector(selectedItem.sourceId);
+            },
+          });
+        } else {
+          this.append({
+            label: $t('Show'),
+            click: () => {
+              this.selectionService.setVisibility(true);
+            },
+          });
+          this.append({
+            label: $t('Hide'),
+            click: () => {
+              this.selectionService.setVisibility(false);
+            },
+          });
+        }
       }
-
-      const visibilityLabel = selectedItem.visible ? 'Hide' : 'Show';
-
-      if (!isMultipleSelection) {
-        this.append({
-          label: visibilityLabel,
-          click: () => {
-            selectedItem.setVisibility(!selectedItem.visible);
-          }
-        });
-      } else {
-        this.append({
-          label: 'Show',
-          click: () => {
-            this.selectionService.setVisibility(true);
-          }
-        });
-        this.append({
-          label: 'Hide',
-          click: () => {
-            this.selectionService.setVisibility(false);
-          }
-        });
-      }
-
 
       if (this.source && this.source.getPropertiesManagerType() === 'widget') {
         this.append({
-          label: 'Export Widget',
+          label: $t('Export Widget'),
           click: () => {
             const chosenPath = electron.remote.dialog.showSaveDialog({
-              filters: [{ name: 'Widget File', extensions: ['widget'] }]
+              filters: [{ name: 'Widget File', extensions: ['widget'] }],
             });
 
             if (!chosenPath) return;
 
             this.widgetsService.saveWidgetFile(chosenPath, selectedItem.sceneItemId);
-          }
+          },
         });
       }
     }
 
     if (this.selectionService.isSceneFolder()) {
       this.append({
-        label: 'Rename',
+        label: $t('Rename'),
         click: () =>
           this.scenesService.showNameFolder({
-            renameId:  this.selectionService.getFolders()[0].id
-          })
+            sceneId: this.scenesService.activeSceneId,
+            renameId: this.selectionService.getFolders()[0].id,
+          }),
       });
     }
 
+    if (this.source) {
+      this.append({
+        label: $t('Remove'),
+        accelerator: 'Delete',
+        click: () => {
+          // if scene items are selected than remove the selection
+          if (this.options.showSceneItemMenu) {
+            this.selectionService.remove();
+          } else {
+            // if no items are selected we are in the MixerSources context menu
+            // if a simple source is selected than remove all sources from the current scene
+            if (!this.source.channel) {
+              const scene = this.scenesService.activeScene;
+              const itemsToRemoveIds = scene
+                .getItems()
+                .filter(item => item.sourceId === this.source.sourceId)
+                .map(item => item.id);
+
+              this.editorCommandsService.executeCommand(
+                'RemoveNodesCommand',
+                scene.getSelection(itemsToRemoveIds),
+              );
+            } else {
+              // remove a global source
+              electron.remote.dialog.showMessageBox(
+                electron.remote.getCurrentWindow(),
+                {
+                  message: $t('This source will be removed from all of your scenes'),
+                  type: 'warning',
+                  buttons: [$t('Cancel'), $t('OK')],
+                },
+                ok => {
+                  if (!ok) return;
+                  this.editorCommandsService.executeCommand(
+                    'RemoveSourceCommand',
+                    this.source.sourceId,
+                  );
+                },
+              );
+            }
+          }
+        },
+      });
+
+      if (this.source.type === 'browser_source') {
+        this.append({
+          label: $t('Interact'),
+          click: () => this.sourcesService.showInteractWindow(this.source.sourceId),
+        });
+      }
+    }
 
     if (this.source && !isMultipleSelection) {
-
       this.append({
-        label: 'Rename',
-        click: () =>
-          this.sourcesService.showRenameSource(this.source.sourceId)
+        label: $t('Rename'),
+        click: () => this.sourcesService.showRenameSource(this.source.sourceId),
       });
 
       this.append({ type: 'separator' });
 
+      const filtersCount = this.sourceFiltersService.getFilters(this.source.sourceId).length;
+
       this.append({
-        label: 'Filters',
+        label: $t('Filters') + (filtersCount > 0 ? ` (${filtersCount})` : ''),
         click: () => {
           this.showFilters();
-        }
+        },
       });
 
       this.append({
-        label: 'Copy Filters',
-        click: () => this.clipboardService.copyFilters()
+        label: $t('Copy Filters'),
+        click: () => this.clipboardService.copyFilters(this.source.sourceId),
       });
 
       this.append({
-        label: 'Paste Filters',
+        label: $t('Paste Filters'),
         click: () => this.clipboardService.pasteFilters(this.source.sourceId),
-        enabled: this.clipboardService.hasFilters()
+        enabled: this.clipboardService.hasFilters(),
       });
 
       this.append({ type: 'separator' });
 
       this.append({
-        label: 'Properties',
+        label: $t('Properties'),
         click: () => {
           this.showProperties();
         },
-        enabled: this.source.hasProps()
+        enabled: this.source.hasProps(),
       });
     }
 
@@ -199,27 +253,64 @@ export class EditMenu extends Menu {
       this.append({ type: 'separator' });
 
       this.append({
-        label: 'Lock Sources',
-        click: () => this.scenesService.setLockOnAllScenes(true)
+        label: $t('Lock Sources'),
+        click: () => this.scenesService.setLockOnAllScenes(true),
       });
 
       this.append({
-        label: 'Unlock Sources',
-        click: () => this.scenesService.setLockOnAllScenes(false)
+        label: $t('Unlock Sources'),
+        click: () => this.scenesService.setLockOnAllScenes(false),
       });
 
-      this.append({ type: 'separator' });
-
       this.append({
-        label: 'Performance Mode',
+        label: $t('Performance Mode'),
         type: 'checkbox',
         checked: this.customizationService.state.performanceMode,
-        click: () => this.customizationService.setSettings({
-          performanceMode: !this.customizationService.state.performanceMode
-        })
+        click: () =>
+          this.customizationService.setSettings({
+            performanceMode: !this.customizationService.state.performanceMode,
+          }),
       });
     }
 
+    this.append({ type: 'separator' });
+
+    this.append({
+      label: $t('Create Output Projector'),
+      click: () => this.projectorService.createProjector(),
+    });
+
+    this.append({ type: 'separator' });
+
+    this.append({
+      label: $t('Undo %{action}', { action: this.editorCommandsService.nextUndoDescription }),
+      accelerator: 'CommandOrControl+Z',
+      click: () => this.editorCommandsService.undo(),
+      enabled: this.editorCommandsService.nextUndo != null,
+    });
+
+    this.append({
+      label: $t('Redo %{action}', { action: this.editorCommandsService.nextRedoDescription }),
+      accelerator: 'CommandOrControl+Y',
+      click: () => this.editorCommandsService.redo(),
+      enabled: this.editorCommandsService.nextRedo != null,
+    });
+
+    if (this.options.showAudioMixerMenu) {
+      this.append({ type: 'separator' });
+
+      this.append({
+        label: 'Hide',
+        click: () => {
+          this.editorCommandsService.executeCommand('HideMixerSourceCommand', this.source.sourceId);
+        },
+      });
+
+      this.append({
+        label: 'Unhide All',
+        click: () => this.editorCommandsService.executeCommand('UnhideMixerSourcesCommand'),
+      });
+    }
   }
 
   private showFilters() {

@@ -1,4 +1,4 @@
-import { Service } from 'services/service';
+import { Service } from 'services/core/service';
 import path from 'path';
 import fs from 'fs';
 
@@ -7,6 +7,21 @@ interface IFile {
   locked: boolean;
   version: number;
   dirty: boolean;
+
+  /**
+   * Used during shutdown to coordinate flushing fully finished
+   * before shutting down.
+   */
+  flushFinished?: () => void;
+}
+
+export interface IFileReadOptions {
+  // If true, will attempt to validate that valid
+  // JSON was read, and will retry/fail if not.
+  validateJSON?: boolean;
+
+  // The number of times to retry
+  retries?: number;
 }
 
 /**
@@ -42,24 +57,49 @@ export class FileManagerService extends Service {
         data,
         locked: false,
         version: 0,
-        dirty: true
+        dirty: true,
       };
     }
 
     this.flush(truePath);
   }
 
-  read(filePath: string) {
+  read(filePath: string, options: IFileReadOptions = {}): string {
     const truePath = path.resolve(filePath);
     let file = this.files[truePath];
 
+    const opts = {
+      validateJSON: false,
+      retries: 0,
+      ...options,
+    };
+
     // If this is the first read of this file, do a blocking synchronous read
     if (!file) {
+      let data: string;
+
+      try {
+        data = fs.readFileSync(truePath).toString();
+
+        if (opts.validateJSON) {
+          JSON.parse(data);
+        }
+      } catch (e) {
+        if (opts.retries > 0) {
+          this.read(filePath, {
+            ...opts,
+            retries: opts.retries - 1,
+          });
+        } else {
+          throw e;
+        }
+      }
+
       file = this.files[truePath] = {
-        data: fs.readFileSync(truePath).toString(),
+        data,
         locked: false,
         version: 0,
-        dirty: false
+        dirty: false,
       };
     }
 
@@ -74,7 +114,7 @@ export class FileManagerService extends Service {
       data: this.read(trueSource),
       locked: false,
       version: 0,
-      dirty: true
+      dirty: true,
     };
 
     this.flush(trueDest);
@@ -85,14 +125,15 @@ export class FileManagerService extends Service {
    * be called before shutdown.
    */
   async flushAll() {
-    const promises = Object.keys(this.files).filter(filePath => {
-      return this.files[filePath].dirty;
-    })
-    .map(filePath => {
-      return this.flush(filePath);
-    });
+    const promises = Object.values(this.files)
+      .filter(file => file.dirty)
+      .map(file => {
+        return new Promise(resolve => {
+          file.flushFinished = resolve;
+        });
+      });
 
-    await promises;
+    await Promise.all(promises);
   }
 
   private async flush(filePath: string, tries = 10) {
@@ -114,12 +155,14 @@ export class FileManagerService extends Service {
 
       file.locked = false;
       file.dirty = false;
+      if (file.flushFinished) file.flushFinished();
       console.debug(`Wrote file ${filePath} version ${version}`);
     } catch (e) {
       if (tries > 0) {
         file.locked = false;
         await this.flush(filePath, tries - 1);
       } else {
+        if (file.flushFinished) file.flushFinished();
         console.error(`Ran out of retries writing ${filePath}`);
       }
     }
@@ -127,7 +170,7 @@ export class FileManagerService extends Service {
 
   /**
    * Checks if a file exists
-   * @param string a path to the file
+   * @param filePath a path to the file
    */
   private fileExists(filePath: string): Promise<boolean> {
     return new Promise(resolve => {
@@ -146,14 +189,12 @@ export class FileManagerService extends Service {
 
       fs.writeFile(tmpPath, data, err => {
         if (err) {
-          console.error(err);
           reject(err);
           return;
         }
 
         fs.rename(tmpPath, filePath, err => {
           if (err) {
-            console.error(err);
             reject(err);
             return;
           }

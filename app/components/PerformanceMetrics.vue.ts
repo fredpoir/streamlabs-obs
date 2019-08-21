@@ -1,9 +1,8 @@
 import Vue from 'vue';
 import { StreamingService } from '../services/streaming';
 import { PerformanceService } from '../services/performance';
-import { Inject } from '../util/injector';
+import { Inject } from '../services/core/injector';
 import { Component } from 'vue-property-decorator';
-import { compact } from 'lodash';
 
 @Component({})
 export default class PerformanceMetrics extends Vue {
@@ -23,9 +22,7 @@ export default class PerformanceMetrics extends Vue {
   }
 
   get percentDropped() {
-    return (this.performanceService.state.percentageDroppedFrames || 0).toFixed(
-      1
-    );
+    return (this.performanceService.state.percentageDroppedFrames || 0).toFixed(1);
   }
 
   get bandwidth() {

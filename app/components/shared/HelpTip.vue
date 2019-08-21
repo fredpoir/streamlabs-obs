@@ -1,7 +1,7 @@
 <template>
   <div class="help-tip" v-if="shouldShow">
     <div class="help-tip__arrow"></div>
-    <i @click="closeHelpTip" class="help-tip__close fa fa-times" />
+    <i @click="closeHelpTip" class="help-tip__close icon-close" />
     <div class="help-tip__title">
       <i class="fa fa-info-circle" />
       <slot name="title"></slot>
@@ -15,11 +15,13 @@
 
 <style lang="less" scoped>
 @import "../../styles/index";
+
 .help-tip {
+  .radius();
+
   position: absolute;
-  background: @teal;
-  .radius;
-  color: white;
+  background: var(--teal);
+  color: var(--white);
   top: -8px;
   right: 102px;
   width: 260px;
@@ -39,11 +41,12 @@
 }
 
 .help-tip__close {
+  .transition();
+
   position: absolute;
   right: 10px;
   cursor: pointer;
-  opacity: .6;
-  .transition;
+  opacity: 0.6;
 
   &:hover {
     opacity: 1;
@@ -51,13 +54,14 @@
 }
 
 .help-tip__title {
-  .semibold;
+  .weight(@medium);
+
   font-size: 16px;
   display: flex;
   align-items: center;
   margin-bottom: 10px;
   padding-bottom: 10px;
-  border-bottom: 1px solid rgba(255,255,255,.2);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
 
   .fa {
     margin-right: 8px;
@@ -66,18 +70,23 @@
 }
 
 @keyframes bounce {
-   from, 3%, 6%, 10%, to {
-    animation-timing-function: cubic-bezier(0.215, 0.610, 0.355, 1.000);
+  from,
+  3%,
+  6%,
+  10%,
+  to {
+    animation-timing-function: cubic-bezier(0.215, 0.61, 0.355, 1);
     transform: translateX(0);
   }
 
-  4%, 5% {
-    animation-timing-function: cubic-bezier(0.755, 0.050, 0.855, 0.060);
+  4%,
+  5% {
+    animation-timing-function: cubic-bezier(0.755, 0.05, 0.855, 0.06);
     transform: translateX(30px);
   }
 
   8% {
-    animation-timing-function: cubic-bezier(0.755, 0.050, 0.855, 0.060);
+    animation-timing-function: cubic-bezier(0.755, 0.05, 0.855, 0.06);
     transform: translateX(15px);
   }
 

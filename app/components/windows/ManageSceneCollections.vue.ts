@@ -1,23 +1,23 @@
 import Vue from 'vue';
 import { Component } from 'vue-property-decorator';
-import windowMixin from 'components/mixins/window';
 import ModalLayout from 'components/ModalLayout.vue';
 import { WindowsService } from 'services/windows';
-import { Inject } from 'util/injector';
+import { Inject } from 'services/core/injector';
 import { SceneCollectionsService } from 'services/scene-collections';
 import EditableSceneCollection from 'components/EditableSceneCollection.vue';
 import Fuse from 'fuse.js';
+import { ObsImporterService } from 'services/obs-importer';
 
 @Component({
-  mixins: [windowMixin],
   components: {
     ModalLayout,
-    EditableSceneCollection
-  }
+    EditableSceneCollection,
+  },
 })
 export default class ManageSceneCollections extends Vue {
   @Inject() windowsService: WindowsService;
   @Inject() sceneCollectionsService: SceneCollectionsService;
+  @Inject() obsImporterService: ObsImporterService;
 
   searchQuery = '';
 
@@ -30,13 +30,17 @@ export default class ManageSceneCollections extends Vue {
     this.sceneCollectionsService.create({ needsRename: true });
   }
 
+  importFromObs() {
+    this.obsImporterService.import();
+  }
+
   get collections() {
     const list = this.sceneCollectionsService.collections;
 
     if (this.searchQuery) {
       const fuse = new Fuse(list, {
         shouldSort: true,
-        keys: ['name']
+        keys: ['name'],
       });
 
       return fuse.search(this.searchQuery);
@@ -44,5 +48,4 @@ export default class ManageSceneCollections extends Vue {
 
     return list;
   }
-
 }

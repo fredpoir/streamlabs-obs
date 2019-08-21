@@ -1,18 +1,25 @@
-import { Observable } from 'rxjs/Observable';
+import { Observable } from 'rxjs';
 
 export enum EStreamingState {
   Offline = 'offline',
   Starting = 'starting',
   Live = 'live',
   Ending = 'ending',
-  Reconnecting = 'reconnecting'
+  Reconnecting = 'reconnecting',
 }
 
 export enum ERecordingState {
   Offline = 'offline',
   Starting = 'starting',
   Recording = 'recording',
-  Stopping = 'stopping'
+  Stopping = 'stopping',
+}
+
+export enum EReplayBufferState {
+  Running = 'running',
+  Stopping = 'stopping',
+  Offline = 'offline',
+  Saving = 'saving',
 }
 
 export interface IStreamingServiceState {
@@ -20,16 +27,28 @@ export interface IStreamingServiceState {
   streamingStatusTime: string;
   recordingStatus: ERecordingState;
   recordingStatusTime: string;
+  replayBufferStatus: EReplayBufferState;
+  replayBufferStatusTime: string;
 }
 
 export interface IStreamingServiceApi {
-
   getModel(): IStreamingServiceState;
 
+  /**
+   * Subscribe to be notified when the state
+   * of the streaming output changes.
+   */
   streamingStatusChange: Observable<EStreamingState>;
 
   /**
-   * Dummy subscription for stream deck
+   * Subscribe to be notified when the state
+   * of the streaming output changes.
+   */
+  recordingStatusChange: Observable<ERecordingState>;
+
+  /**
+   * This subscription receives no events and
+   * will be removed in a future version.
    * @deprecated
    */
   streamingStateChange: Observable<void>;
@@ -47,7 +66,7 @@ export interface IStreamingServiceApi {
   /**
    * Toggle the streaming state
    */
-  toggleStreaming(): void;
+  toggleStreaming(): Promise<never> | Promise<void>;
 
   /**
    * @deprecated

@@ -1,11 +1,7 @@
 import { Node } from '../node';
-import { SceneItem } from '../../../scenes';
-import { 
-  FontLibraryService, 
-  IFontFamily, IFontStyle } from '../../../font-library';
-import { Inject } from '../../../../util/injector';
-import * as fi from 'node-fontinfo';
-import { EFontStyle } from 'obs-studio-node';
+import { SceneItem } from 'services/scenes';
+import { FontLibraryService } from 'services/font-library';
+import { Inject } from 'services/core/injector';
 import path from 'path';
 
 interface ISchema {
@@ -29,8 +25,7 @@ export class TextNode extends Node<ISchema, IContext> {
     // storing a full path that could possibly leak information
     // about a person's computer.
     if (settings['custom_font']) {
-      const file = path.parse(settings['custom_font']).base;
-      settings['custom_font'] = file;
+      settings['custom_font'] = path.parse(settings['custom_font']).base;
     }
 
     settings['file'] = '';
@@ -41,39 +36,11 @@ export class TextNode extends Node<ISchema, IContext> {
   async load(context: IContext) {
     const settings = this.data.settings;
 
-    // Overlays should always use a custom font, but in case they
-    // don't, just leave all the settings as-is
-    if (!settings['custom_font']) {
-      this.updateInput(context);
-      return;
-    }
-
-    // If a custom font was set, try to load it as a google font.
-    // If this fails, no font will be installed and the plugin
-    // will automatically fall back to Arial
-    const filename = settings['custom_font'];
-
-    const fontPath =
-      await this.fontLibraryService.downloadFont(filename);
-
-    const fontInfo = fi.getFontInfo(fontPath);
-
-    if (!fontInfo) {
-      // Fall back to Arial
-      delete settings['custom_font'];
-      settings['font']['face'] = 'Arial';
-      settings['font']['flags'] = 0;
-      this.updateInput(context);
-      return;
-    }
-
-    settings['custom_font'] = fontPath;
-    settings['font']['face'] = fontInfo.family_name;
-    settings['font']['flags'] =
-      (fontInfo.italic ? EFontStyle.Italic : 0) |
-      (fontInfo.bold ? EFontStyle.Bold : 0);
-
     this.updateInput(context);
+
+    // This is a bit of a hack to force us to immediately download the
+    // google font.
+    context.sceneItem.getSource().replacePropertiesManager('default', {});
   }
 
   updateInput(context: IContext) {

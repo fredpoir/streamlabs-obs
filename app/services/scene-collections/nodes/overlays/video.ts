@@ -1,6 +1,6 @@
 import { Node } from '../node';
 import { SceneItem } from '../../../scenes';
-import { uniqueId } from 'lodash';
+import uniqueId from 'lodash/uniqueId';
 import path from 'path';
 import fs from 'fs';
 
@@ -41,7 +41,7 @@ export class VideoNode extends Node<ISchema, IContext> {
 
     this.data = {
       settings,
-      filename: newFileName
+      filename: newFileName,
     };
   }
 
@@ -50,5 +50,9 @@ export class VideoNode extends Node<ISchema, IContext> {
     const settings = { ...this.data.settings };
     settings['local_file'] = filePath;
     context.sceneItem.getObsInput().update(settings);
+
+    // This is a bit of a hack to force us to immediately back up
+    // the media upon overlay install.
+    context.sceneItem.getSource().replacePropertiesManager('default', {});
   }
 }

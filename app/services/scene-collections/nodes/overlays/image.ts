@@ -1,6 +1,6 @@
 import { Node } from '../node';
 import { SceneItem } from '../../../scenes';
-import { uniqueId } from 'lodash';
+import uniqueId from 'lodash/uniqueId';
 import path from 'path';
 import fs from 'fs';
 
@@ -25,7 +25,7 @@ export class ImageNode extends Node<ISchema, IContext> {
     fs.writeFileSync(destination, fs.readFileSync(filePath));
 
     this.data = {
-      filename: newFileName
+      filename: newFileName,
     };
   }
 
@@ -34,5 +34,9 @@ export class ImageNode extends Node<ISchema, IContext> {
     const settings = { ...context.sceneItem.getObsInput().settings };
     settings['file'] = filePath;
     context.sceneItem.getObsInput().update(settings);
+
+    // This is a bit of a hack to force us to immediately back up
+    // the media upon overlay install.
+    context.sceneItem.getSource().replacePropertiesManager('default', {});
   }
 }

@@ -9,7 +9,7 @@
         @keypress="handleKeypress"
         v-model="editableName" />
       <i class="fa fa-check" @click.stop="submitRename" />
-      <i class="fa fa-times" @click.stop="cancelRename" v-if="!needsRename" />
+      <i class="icon-times" @click.stop="cancelRename" v-if="!needsRename" />
     </div>
     <div v-else>
       {{ collection.name }}
@@ -23,15 +23,15 @@
   <span class="editable-scene-collection--modified flex--grow">
     Updated {{ modified }}
   </span>
-  <a class="editable-scene-collection--action link link--underlined">
-    <span @click.stop="startRenaming">Rename</span>
+  <a class="editable-scene-collection--action">
+    <span @click.stop="startRenaming">{{ $t('Rename') }}</span>
   </a>
-  <a v-if="!duplicating" class="editable-scene-collection--action link link--underlined">
-    <span @click.stop="duplicate">Duplicate</span>
+  <a v-if="!duplicating" class="editable-scene-collection--action">
+    <span @click.stop="duplicate">{{ $t('Duplicate') }}</span>
   </a>
   <i class="fa fa-spinner fa-pulse" v-else />
-  <a class="editable-scene-collection--action editable-scene-collection--action-delete link link--underlined">
-    <span @click.stop="remove">Delete</span>
+  <a class="editable-scene-collection--action editable-scene-collection--action-delete">
+    <span @click.stop="remove">{{ $t('Delete') }}</span>
   </a>
 </div>
 </template>
@@ -42,18 +42,22 @@
 @import "../styles/index";
 
 .editable-scene-collection {
+  .radius();
+
   height: 35px;
   padding: 5px;
-  .radius;
   font-size: 14px;
   cursor: pointer;
 
-  span, a, input, i {
+  span,
+  a,
+  input,
+  i {
     margin-right: 8px;
   }
 
   &:hover {
-    background: @day-hover;
+    background: var(--hover);
 
     .editable-scene-collection--action {
       display: inline;
@@ -63,7 +67,7 @@
 
 .editable-scene-collection--active {
   font-size: 12px;
-  color: @teal;
+  color: var(--teal);
 }
 
 .editable-scene-collection--action {
@@ -71,13 +75,14 @@
 }
 
 .editable-scene-collection--action-delete {
-  color: @red;
+  color: var(--warning);
 }
 
 .editable-scene-collection--name {
   max-width: 230px;
+  color: var(--title);
 
-  >div {
+  > div {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -91,21 +96,5 @@
 
 .editable-scene-collection--modified {
   font-size: 12px;
-}
-
-.night-theme {
-  .editable-scene-collection {
-    &:hover {
-      background-color: @night-hover;
-    }
-  }
-
-  .editable-scene-collection--name {
-    color: @white;
-
-    input {
-      background: transparent;
-    }
-  }
 }
 </style>

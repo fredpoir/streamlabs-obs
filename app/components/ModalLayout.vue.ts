@@ -2,25 +2,29 @@ import Vue from 'vue';
 import { Component, Prop } from 'vue-property-decorator';
 import { WindowsService } from 'services/windows';
 import { CustomizationService } from 'services/customization';
-import { Inject } from 'util/injector';
-import TitleBar from './TitleBar.vue';
+import { Inject } from 'services/core/injector';
 import { AppService } from 'services/app';
-import electron from 'electron';
+import TsxComponent from 'components/tsx-component';
 
-@Component({
-  components: { TitleBar }
-})
-export default class ModalLayout extends Vue {
-
+@Component({})
+export default class ModalLayout extends TsxComponent<{
+  showControls?: boolean;
+  showCancel?: boolean;
+  showDone?: boolean;
+  disableDone?: boolean;
+  containsTabs?: boolean;
+  doneHandler?: Function;
+  cancelHandler?: Function;
+  contentStyles?: Dictionary<string>;
+  fixedSectionHeight?: number;
+  customControls?: boolean;
+}> {
   contentStyle: Object = {};
   fixedStyle: Object = {};
 
   @Inject() customizationService: CustomizationService;
   @Inject() windowsService: WindowsService;
   @Inject() appService: AppService;
-
-  // The title shown at the top of the window
-  @Prop() title: string;
 
   // Whether the "cancel" and "done" controls should be
   // shown at the bottom of the modal.
@@ -29,6 +33,17 @@ export default class ModalLayout extends Vue {
   // If controls are shown, whether or not to show the
   // cancel button.
   @Prop({ default: true }) showCancel: boolean;
+
+  // If controls are shown, whether or not to show the
+  // Done button.
+  @Prop({ default: true }) showDone: boolean;
+
+  // Disable done button.
+  @Prop({ default: false }) disableDone: boolean;
+
+  // If tabs are shown, whether or not to fix
+  // the margin.
+  @Prop({ default: false }) containsTabs: boolean;
 
   // Will be called when "done" is clicked if controls
   // are enabled
@@ -51,27 +66,31 @@ export default class ModalLayout extends Vue {
   @Prop({ default: false })
   customControls: boolean;
 
+  @Prop({ default: true })
+  hasTitleBar: boolean;
 
   created() {
     const contentStyle = {
-      padding: '20px',
-      overflow: 'auto'
+      padding: '16px',
+      overflowY: 'auto',
     };
 
     Object.assign(contentStyle, this.contentStyles);
 
     const fixedStyle = {
-      height: (this.fixedSectionHeight || 0).toString() + 'px'
+      height: `${this.fixedSectionHeight || 0}px`,
     };
 
     this.contentStyle = contentStyle;
     this.fixedStyle = fixedStyle;
-
-    electron.remote.getCurrentWindow().setTitle(this.title);
   }
 
-  get nightTheme() {
-    return this.customizationService.nightMode;
+  get wrapperClassNames() {
+    if (this.hasTitleBar) {
+      return [this.customizationService.currentTheme, 'has-titlebar'].join(' ');
+    }
+
+    return this.customizationService.currentTheme;
   }
 
   cancel() {
@@ -82,8 +101,15 @@ export default class ModalLayout extends Vue {
     }
   }
 
+  done() {
+    if (this.doneHandler) {
+      this.doneHandler();
+    } else {
+      this.windowsService.closeChildWindow();
+    }
+  }
+
   get loading() {
     return this.appService.state.loading;
   }
-
 }

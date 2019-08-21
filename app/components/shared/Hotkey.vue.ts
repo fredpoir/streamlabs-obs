@@ -1,7 +1,6 @@
-import Vue from 'vue';
 import { Component, Prop } from 'vue-property-decorator';
-import { compact } from 'lodash';
-import { Hotkey, IBinding } from '../../services/hotkeys';
+import { IHotkey, IBinding } from 'services/hotkeys';
+import TsxComponent from 'components/tsx-component';
 
 /**
  * Represents a binding that has a unique key for CSS animations
@@ -11,13 +10,9 @@ interface IKeyedBinding {
   key: string;
 }
 
-@Component({
-  props: ['hotkey']
-})
-export default class HotkeyComponent extends Vue {
-
-  @Prop()
-  hotkey: Hotkey;
+@Component({})
+export default class HotkeyComponent extends TsxComponent<{ hotkey: IHotkey }> {
+  @Prop() hotkey: IHotkey;
 
   description = this.hotkey.description;
   bindings: IKeyedBinding[] = [];
@@ -32,35 +27,50 @@ export default class HotkeyComponent extends Vue {
     }
   }
 
-  handleKeydown(event: KeyboardEvent, index: number) {
-    event.preventDefault();
+  handlePress(event: KeyboardEvent | MouseEvent, index: number) {
+    // We don't allow binding left or right click
+    if (event instanceof MouseEvent && (event.button === 0 || event.button === 2)) return;
 
-    if (this.isModifierPress(event)) return;
+    // We don't allow binding a modifier by instelf
+    if (event instanceof KeyboardEvent && this.isModifierPress(event)) return;
+
+    event.preventDefault();
 
     const binding = this.bindings[index];
 
+    const key =
+      event instanceof MouseEvent
+        ? {
+            1: 'MiddleMouseButton',
+            3: 'X1MouseButton',
+            4: 'X2MouseButton',
+          }[event.button]
+        : event.code;
+
     binding.binding = {
-      key: event.code,
-      modifiers: this.getModifiers(event)
+      key,
+      modifiers: this.getModifiers(event),
     };
 
     this.setBindings();
   }
 
-  getModifiers(event: KeyboardEvent) {
+  getModifiers(event: KeyboardEvent | MouseEvent) {
     return {
       alt: event.altKey,
       ctrl: event.ctrlKey,
       shift: event.shiftKey,
-      meta: event.metaKey
+      meta: event.metaKey,
     };
   }
 
   isModifierPress(event: KeyboardEvent) {
-    return (event.key === 'Control') ||
-      (event.key === 'Alt') ||
-      (event.key === 'Meta') ||
-      (event.key === 'Shift');
+    return (
+      event.key === 'Control' ||
+      event.key === 'Alt' ||
+      event.key === 'Meta' ||
+      event.key === 'Shift'
+    );
   }
 
   /**
@@ -70,7 +80,6 @@ export default class HotkeyComponent extends Vue {
     this.bindings.splice(index + 1, 0, this.createBindingWithKey(this.getBlankBinding()));
   }
 
-
   getBlankBinding() {
     return {
       key: '',
@@ -78,11 +87,10 @@ export default class HotkeyComponent extends Vue {
         alt: false,
         ctrl: false,
         shift: false,
-        meta: false
-      }
+        meta: false,
+      },
     };
   }
-
 
   removeBinding(index: number) {
     // If this is the last binding, replace it with an
@@ -102,7 +110,9 @@ export default class HotkeyComponent extends Vue {
   createBindingWithKey(binding: IBinding): IKeyedBinding {
     return {
       binding,
-      key: Math.random().toString(36).substring(2, 15)
+      key: Math.random()
+        .toString(36)
+        .substring(2, 15),
     };
   }
 
@@ -118,7 +128,6 @@ export default class HotkeyComponent extends Vue {
 
     this.hotkey.bindings = bindings;
   }
-
 
   /**
    * Turns a binding into a string representation
@@ -139,9 +148,12 @@ export default class HotkeyComponent extends Vue {
     const matchKey = binding.key.match(/^Key([A-Z])$/);
     if (matchKey) key = matchKey[1];
 
+    if (key === 'MiddleMouseButton') key = 'Mouse 3';
+    if (key === 'X1MouseButton') key = 'Mouse 4';
+    if (key === 'X2MouseButton') key = 'Mouse 5';
+
     keys.push(key);
 
     return keys.join('+');
   }
-
 }

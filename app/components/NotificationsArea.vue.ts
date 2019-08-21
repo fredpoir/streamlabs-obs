@@ -1,13 +1,10 @@
 import Vue from 'vue';
 import moment from 'moment';
 import { Component } from 'vue-property-decorator';
-import { Inject } from 'util/injector';
-import {
-  ENotificationType,
-  NotificationsService,
-  INotification
-} from 'services/notifications';
-import notificationAudio from '../../media/sound/ding.wav';
+import { Inject } from 'services/core/injector';
+import { ENotificationType, NotificationsService, INotification } from 'services/notifications';
+import { $t } from 'services/i18n';
+const notificationAudio = require('../../media/sound/ding.wav');
 const QUEUE_TIME = 5000;
 
 interface IUiNotification extends INotification {
@@ -32,8 +29,8 @@ export default class NotificationsArea extends Vue {
     notificationsContainer: HTMLDivElement;
   };
 
-  showNotificationsTooltip = 'Click to open your Notifications window';
-  showUnreadNotificationsTooltip = 'Click to read your unread Notifications';
+  showNotificationsTooltip = $t('Click to open your Notifications window');
+  showUnreadNotificationsTooltip = $t('Click to read your unread Notifications');
 
   mounted() {
     this.notifyAudio = new Audio(notificationAudio);
@@ -46,20 +43,17 @@ export default class NotificationsArea extends Vue {
       this.onNotificationsReadHandler(ids);
     });
 
-    this.checkQueueIntervalId = window.setInterval(
-      () => this.checkQueue(),
-      QUEUE_TIME
-    );
+    this.checkQueueIntervalId = window.setInterval(() => this.checkQueue(), QUEUE_TIME);
 
     this.sizeCheckIntervalId = window.setInterval(() => {
       if (!this.$refs.notificationsContainer) return;
 
-      if (this.$refs.notificationsContainer.offsetWidth < 300) {
-        this.showExtendedNotifications = false;
-      } else {
-        this.showExtendedNotifications = true;
-      }
+      this.showExtendedNotifications = this.$refs.notificationsContainer.offsetWidth >= 150;
     }, 1000);
+
+    if (this.notificationsService.state.notifications.length) {
+      this.notificationsService.state.notifications.forEach(this.onNotificationHandler);
+    }
   }
 
   destroyed() {
@@ -68,8 +62,7 @@ export default class NotificationsArea extends Vue {
   }
 
   get unreadCount() {
-    return this.notificationsService.getUnread(ENotificationType.WARNING)
-      .length;
+    return this.notificationsService.getUnread(ENotificationType.WARNING).length;
   }
 
   get settings() {
@@ -122,8 +115,7 @@ export default class NotificationsArea extends Vue {
       }
       Vue.nextTick(() => {
         this.notifications.push({ ...notify, outdated: false });
-        if (notify.lifeTime !== -1)
-          window.setTimeout(() => this.hideOutdated(), notify.lifeTime);
+        if (notify.lifeTime !== -1) window.setTimeout(() => this.hideOutdated(), notify.lifeTime);
       });
     });
   }
@@ -141,6 +133,7 @@ export default class NotificationsArea extends Vue {
     const notify = this.notifications.find(notify => notify.id === id);
     if (notify.outdated) return;
     this.notificationsService.applyAction(id);
+    this.notificationsService.markAsRead(id);
     notify.outdated = true;
   }
 
@@ -148,10 +141,7 @@ export default class NotificationsArea extends Vue {
     this.notifications.forEach(uiNotify => {
       const notify = this.notificationsService.getNotification(uiNotify.id);
       const now = Date.now();
-      if (
-        notify.unread === false ||
-        (notify.lifeTime !== -1 && now - notify.date > notify.lifeTime)
-      ) {
+      if (!notify.unread || (notify.lifeTime !== -1 && now - notify.date > notify.lifeTime)) {
         uiNotify.outdated = true;
       }
     });

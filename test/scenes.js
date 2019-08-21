@@ -1,7 +1,12 @@
-import test from 'ava';
-import { useSpectron, focusMain } from './helpers/spectron/index';
-import { addSource } from './helpers/spectron/sources';
-import { addScene, clickRemoveScene, selectScene, openRenameWindow } from './helpers/spectron/scenes';
+import { useSpectron, focusMain, test } from './helpers/spectron/index';
+import { addSource, sourceIsExisting } from './helpers/spectron/sources';
+import {
+  addScene,
+  clickRemoveScene,
+  selectScene,
+  openRenameWindow,
+  openDuplicateWindow
+} from './helpers/spectron/scenes';
 import { getClient } from './helpers/api-client';
 
 useSpectron();
@@ -45,17 +50,17 @@ test('Scene switching with sources', async t => {
   await addSource(t, 'Color Source', sourceName);
 
   await focusMain(t);
-  t.true(await app.client.isExisting(`li=${sourceName}`));
+  t.true(await sourceIsExisting(t, sourceName));
 
   // Adding a new scene will make that scene active, so we can't see
   // the source we just added.
   await addScene(t, sceneName);
   await focusMain(t);
-  t.false(await app.client.isExisting(`li=${sourceName}`));
+  t.false(await sourceIsExisting(t, sourceName));
 
   // Switch back to the default scene
   await selectScene(t, 'Scene');
-  t.true(await app.client.isExisting(`li=${sourceName}`));
+  t.true(await sourceIsExisting(t, sourceName));
 });
 
 test('Restarting the app preserves the default sources', async t => {
@@ -89,4 +94,17 @@ test('Rename scene', async t => {
   await focusMain(t);
 
   t.true(await app.client.isExisting(`div=${newSceneName}`));
+});
+
+
+test('Duplicate scene', async t => {
+  const app = t.context.app;
+  const sceneName = 'My Scene';
+  await addScene(t, sceneName);
+  await focusMain(t);
+  t.true(await app.client.isExisting(`div=${sceneName}`));
+  await openDuplicateWindow(t, sceneName);
+  await app.client.click('button=Done');
+  await focusMain(t);
+  t.true(await app.client.isExisting(`div=${sceneName} (1)`));
 });

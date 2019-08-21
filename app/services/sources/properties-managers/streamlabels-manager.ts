@@ -1,15 +1,13 @@
-import { PropertiesManager } from './properties-manager';
-import { Inject } from 'util/injector';
+import { DefaultManager, IDefaultManagerSettings } from './default-manager';
+import { Inject } from 'services/core/injector';
 import { StreamlabelsService, IStreamlabelSubscription } from 'services/streamlabels';
-import { getDefinitions } from 'services/streamlabels/definitions';
 import { UserService } from 'services/user';
 
-export interface IStreamlabelsManagerSettings {
+export interface IStreamlabelsManagerSettings extends IDefaultManagerSettings {
   statname: string;
 }
 
-export class StreamlabelsManager extends PropertiesManager {
-
+export class StreamlabelsManager extends DefaultManager {
   @Inject() streamlabelsService: StreamlabelsService;
   @Inject() userService: UserService;
 
@@ -66,7 +64,7 @@ export class StreamlabelsManager extends PropertiesManager {
       // Default to All-Time Top Donator
       statname: 'all_time_top_donator',
       ...this.settings,
-      ...settings
+      ...settings,
     };
 
     this.normalizeSettings();
@@ -74,13 +72,11 @@ export class StreamlabelsManager extends PropertiesManager {
     this.refreshSubscription();
   }
 
-
   private unsubscribe() {
     if (this.subscription) {
       this.streamlabelsService.unsubscribe(this.subscription);
     }
   }
-
 
   private refreshSubscription() {
     this.unsubscribe();
@@ -90,8 +86,7 @@ export class StreamlabelsManager extends PropertiesManager {
     this.obsSource.update({
       ...this.obsSource.settings,
       read_from_file: true,
-      file: this.subscription.path
+      file: this.subscription.path,
     });
   }
-
 }
